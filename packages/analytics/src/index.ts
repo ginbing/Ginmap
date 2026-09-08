@@ -99,6 +99,16 @@ export function applySettings(snapshot: ProfileSnapshot, settings: ProfileSettin
   return { ...snapshot, repositories };
 }
 
+export function splitWork(repositories: RepositoryWorkSummary[]): {
+  projects: RepositoryWorkSummary[];
+  externalContributions: RepositoryWorkSummary[];
+} {
+  return {
+    projects: repositories.filter((repository) => repository.role === "owner"),
+    externalContributions: repositories.filter((repository) => repository.role === "contributor"),
+  };
+}
+
 export async function getVisibleSnapshot(userId: string): Promise<{ snapshot: ProfileSnapshot; settings: ProfileSettings } | null> {
   const [snapshot, settings] = await Promise.all([getSnapshot(userId), getProfileSettings(userId)]);
   if (!snapshot) return null;
@@ -106,6 +116,7 @@ export async function getVisibleSnapshot(userId: string): Promise<{ snapshot: Pr
 }
 
 export function toPublicSummary(snapshot: ProfileSnapshot, definitionsUrl: string): PublicSummaryResponse {
+  const { projects, externalContributions } = splitWork(snapshot.repositories);
   return {
     schemaVersion: snapshot.schemaVersion,
     metricsVersion: snapshot.metricsVersion,
@@ -113,6 +124,8 @@ export function toPublicSummary(snapshot: ProfileSnapshot, definitionsUrl: strin
     identity: snapshot.identity,
     lifetime: snapshot.lifetime,
     years: snapshot.years,
+    projects,
+    externalContributions,
     repositories: snapshot.repositories,
     definitionsUrl,
   };
