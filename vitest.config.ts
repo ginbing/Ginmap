@@ -13,7 +13,8 @@ export default defineConfig({
       "@ginmap/db": resolve(root, "packages/db/src/index.ts"),
       "@ginmap/github": resolve(root, "packages/github/src/index.ts"),
       "@ginmap/analytics": resolve(root, "packages/analytics/src/index.ts"),
-      "@ginmap/render": resolve(root, "packages/render/src/index.ts")
+      "@ginmap/render": resolve(root, "packages/render/src/index.ts"),
+      "@ginmap/hosted": resolve(root, "packages/hosted/src/index.ts")
     }
   }
 });
