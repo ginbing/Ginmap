@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import type {
   GitHubIdentity,
   IssueRecord,
@@ -9,6 +10,7 @@ import type {
 
 const REST = "https://api.github.com";
 const GRAPHQL = "https://api.github.com/graphql";
+const MAX_NETWORK_CONCURRENCY = 4;
 
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -18,13 +20,39 @@ function authorizationHeader(credential: string): string {
   return credential.startsWith("Basic ") || credential.startsWith("Bearer ") ? credential : `Bearer ${credential}`;
 }
 
-let requestTail: Promise<void> = Promise.resolve();
-async function serialize<T>(fn: () => Promise<T>): Promise<T> {
+const requestTails = new Map<string, Promise<void>>();
+function credentialKey(credential: string): string {
+  return createHash("sha256").update(credential).digest("hex");
+}
+
+async function serializeCredential<T>(credential: string, fn: () => Promise<T>): Promise<T> {
+  const key = credentialKey(credential);
+  const previous = requestTails.get(key) ?? Promise.resolve();
   let release!: () => void;
-  const previous = requestTail;
-  requestTail = new Promise<void>((resolve) => { release = resolve; });
+  const current = new Promise<void>((resolve) => { release = resolve; });
+  requestTails.set(key, current);
   await previous;
-  try { return await fn(); } finally { release(); }
+  try {
+    return await fn();
+  } finally {
+    release();
+    if (requestTails.get(key) === current) requestTails.delete(key);
+  }
+}
+
+let activeNetworkRequests = 0;
+const networkWaiters: Array<() => void> = [];
+async function withNetworkSlot<T>(fn: () => Promise<T>): Promise<T> {
+  if (activeNetworkRequests >= MAX_NETWORK_CONCURRENCY) {
+    await new Promise<void>((resolve) => networkWaiters.push(resolve));
+  }
+  activeNetworkRequests += 1;
+  try {
+    return await fn();
+  } finally {
+    activeNetworkRequests -= 1;
+    networkWaiters.shift()?.();
+  }
 }
 
 function retryDelay(response: Response, attempt: number): number {
@@ -43,7 +71,7 @@ async function rawGitHubFetch(url: string, credential: string, init: RequestInit
   for (let attempt = 0; attempt < 4; attempt++) {
     let response: Response;
     try {
-      response = await fetch(url, {
+      response = await withNetworkSlot(() => fetch(url, {
         ...init,
         headers: {
           Accept: "application/vnd.github+json",
@@ -52,7 +80,7 @@ async function rawGitHubFetch(url: string, credential: string, init: RequestInit
           "User-Agent": "ginmap",
           ...(init.headers ?? {}),
         },
-      });
+      }));
     } catch (error) {
       lastNetworkError = error;
       if (attempt < 3) { await sleep(1000 * 2 ** attempt); continue; }
@@ -71,7 +99,7 @@ async function rawGitHubFetch(url: string, credential: string, init: RequestInit
 }
 
 async function githubFetch(url: string, credential: string, init: RequestInit = {}, allowedStatuses: number[] = []): Promise<Response> {
-  return serialize(() => rawGitHubFetch(url, credential, init, allowedStatuses));
+  return serializeCredential(credential, () => rawGitHubFetch(url, credential, init, allowedStatuses));
 }
 
 async function graphql<T>(credential: string, query: string, variables: Record<string, unknown>): Promise<T> {
