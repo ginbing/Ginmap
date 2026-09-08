@@ -24,7 +24,6 @@ export default async function PublicProfilePage({ params }: { params: Promise<{ 
   return (
     <div className="shell profile">
       <div className="profile-header">
-        {/* eslint-disable-next-line @next/next/no-img-element */}
         <img className="avatar" src={snapshot.identity.avatarUrl} alt="" />
         <div><h1>{snapshot.identity.login}</h1><p>Lifetime public GitHub work · calculated {new Date(snapshot.calculatedAt).toLocaleDateString("en-US")}</p></div>
       </div>
