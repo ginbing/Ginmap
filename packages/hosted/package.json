@@ -5,7 +5,9 @@
   "type": "module",
   "exports": "./src/index.ts",
   "dependencies": {
+    "@ginmap/config": "0.1.0",
     "@ginmap/db": "0.1.0",
+    "@ginmap/github": "0.1.0",
     "@ginmap/model": "0.1.0"
   }
 }
