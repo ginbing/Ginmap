@@ -1,10 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getProfileSettings, saveProfileSettings } from "@ginmap/db";
 import { currentUser } from "../../../../lib/session";
-import { requireSameOrigin } from "../../../../lib/security";
+import { isSameOrigin } from "../../../../lib/security";
 
 export async function POST(request: NextRequest) {
-  requireSameOrigin(request);
+  if (!isSameOrigin(request)) return new Response("Forbidden", { status: 403 });
   const user = await currentUser();
   if (!user) return NextResponse.redirect(new URL("/", request.url), 303);
   const form = await request.formData();
