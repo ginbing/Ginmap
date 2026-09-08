@@ -4,14 +4,17 @@ import {
   getPool,
   getProfileSettings,
   getSnapshot,
-  getUserByLogin,
-  isOptedOut,
   latestSyncStatus,
   listRepositoryWork,
   upsertUser,
   type UserRow,
 } from "@ginmap/db";
 import { fetchPublicIdentity, verifyPublicCredential } from "@ginmap/github";
+import {
+  getAliasUserByLogin,
+  getCurrentUserByLogin,
+  isGithubIdOptedOut,
+} from "@ginmap/operations";
 import type { ProfileSettings, ProfileSnapshot, RepositoryEvidence } from "@ginmap/model";
 
 const LOGIN_RE = /^[A-Za-z0-9](?:[A-Za-z0-9-]{0,37}[A-Za-z0-9])?$/;
@@ -80,21 +83,35 @@ export class AnonymousProfileRateLimitError extends Error {
   constructor() { super("Anonymous profile generation is temporarily rate limited"); }
 }
 
+async function resolveHostedUser(login: string, requesterKey: string): Promise<UserRow | null> {
+  const current = await getCurrentUserByLogin(login);
+  if (current) return current;
+
+  if (await negativeLookup(login)) {
+    return getAliasUserByLogin(login);
+  }
+  if (!await admitAnonymousProfile(requesterKey)) throw new AnonymousProfileRateLimitError();
+
+  const token = await ensurePublicCredential();
+  const identity = await fetchPublicIdentity(token, login);
+  if (identity) {
+    if (await isGithubIdOptedOut(identity.githubId)) return null;
+    const user = await upsertUser(identity);
+    if (!await getSnapshot(user.id)) await enqueueSync(user.id, "backfill");
+    return user;
+  }
+
+  const alias = await getAliasUserByLogin(login);
+  if (alias) return alias;
+  await rememberNegativeLookup(login);
+  return null;
+}
+
 export async function ensureHostedProfile(login: string, requesterKey = "unknown"): Promise<HostedProfileState | null> {
   if (!validGitHubLogin(login)) return null;
-  let user = await getUserByLogin(login);
-  if (user?.opted_out_at) return null;
-  if (!user) {
-    if (await isOptedOut(login)) return null;
-    if (await negativeLookup(login)) return null;
-    if (!await admitAnonymousProfile(requesterKey)) throw new AnonymousProfileRateLimitError();
-    const token = await ensurePublicCredential();
-    const identity = await fetchPublicIdentity(token, login);
-    if (!identity) { await rememberNegativeLookup(login); return null; }
-    if (await isOptedOut(login, identity.githubId)) return null;
-    user = await upsertUser(identity);
-    await enqueueSync(user.id, "backfill");
-  }
+  const user = await resolveHostedUser(login, requesterKey);
+  if (!user) return null;
+
   await touchProfile(user.id);
   const [snapshot, settings, claimed, sync] = await Promise.all([
     getSnapshot(user.id), getProfileSettings(user.id), isClaimed(user.id), latestSyncStatus(user.id),
@@ -109,7 +126,7 @@ export async function enqueueDuePublicSyncs(syncHours: number, reconcileHours: n
     `INSERT INTO sync_jobs (user_id,kind,status)
      SELECT u.id,'incremental','pending' FROM users u
      LEFT JOIN profile_snapshots s ON s.user_id=u.id
-     WHERE u.opted_out_at IS NULL AND u.last_viewed_at>now()-interval '30 days'
+     WHERE u.last_viewed_at>now()-interval '30 days'
        AND (s.calculated_at IS NULL OR s.calculated_at<now()-($1 || ' hours')::interval)
      ON CONFLICT DO NOTHING`,
     [String(syncHours)],
@@ -117,7 +134,7 @@ export async function enqueueDuePublicSyncs(syncHours: number, reconcileHours: n
   await db.query(
     `INSERT INTO sync_jobs (user_id,kind,status)
      SELECT u.id,'reconcile','pending' FROM users u
-     WHERE u.opted_out_at IS NULL AND u.last_viewed_at>now()-interval '30 days'
+     WHERE u.last_viewed_at>now()-interval '30 days'
        AND EXISTS (SELECT 1 FROM profile_snapshots s WHERE s.user_id=u.id)
        AND NOT EXISTS (
          SELECT 1 FROM sync_runs r WHERE r.user_id=u.id AND r.kind='reconcile' AND r.status='complete'
