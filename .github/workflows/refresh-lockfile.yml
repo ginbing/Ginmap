@@ -1,0 +1,33 @@
+name: Refresh lockfile
+
+on:
+  push:
+    branches:
+      - feat/ginmap-v1
+    paths:
+      - package.json
+      - apps/**/package.json
+      - packages/**/package.json
+      - .github/workflows/refresh-lockfile.yml
+
+permissions:
+  contents: write
+
+jobs:
+  refresh:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: feat/ginmap-v1
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+      - run: npm install --package-lock-only --ignore-scripts --no-audit --no-fund
+      - run: |
+          if git diff --quiet -- package-lock.json; then exit 0; fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add package-lock.json
+          git commit -m "build: refresh npm lockfile"
+          git push origin HEAD:feat/ginmap-v1
