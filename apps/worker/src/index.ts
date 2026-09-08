@@ -1,5 +1,15 @@
 import { createServer } from "node:http";
-import { decryptToken, encryptToken, githubClientId, githubClientSecret, reconcileIntervalHours, syncIntervalHours, workerHealthPort } from "@ginmap/config";
+import {
+  decryptToken,
+  encryptToken,
+  githubAppAuthorization,
+  githubClientId,
+  githubClientSecret,
+  reconcileIntervalHours,
+  syncIntervalHours,
+  unclaimedRetentionDays,
+  workerHealthPort,
+} from "@ginmap/config";
 import {
   claimSyncJob,
   closePool,
@@ -7,7 +17,6 @@ import {
   connectGitHubAccount,
   createOrResumeSyncRun,
   deleteYearContributionsNotIn,
-  enqueueDueSyncs,
   failSyncJob,
   failSyncRun,
   finishSyncRun,
@@ -28,6 +37,7 @@ import {
   fetchContributionYears,
   fetchIssuesInWindow,
   fetchOpenPullRequests,
+  fetchPublicIdentity,
   fetchPullRequestsInWindow,
   fetchRepositoryMetadata,
   fetchViewerIdentity,
@@ -35,6 +45,7 @@ import {
   fetchYearContributions,
 } from "@ginmap/github";
 import { rebuildSnapshot } from "@ginmap/analytics";
+import { deleteExpiredUnclaimedProfiles, enqueueDuePublicSyncs } from "@ginmap/hosted";
 import type { SyncKind } from "@ginmap/model";
 
 const pollMs = 5_000;
@@ -66,27 +77,27 @@ async function mapLimit<T>(items: T[], limit: number, fn: (item: T) => Promise<v
   await Promise.all(workers);
 }
 
-async function persistYear(userId: string, token: string, login: string, year: number): Promise<void> {
+async function persistYear(userId: string, credential: string, login: string, year: number): Promise<void> {
   const { from, to } = yearWindow(year);
   const [contributions, prs, issues] = await Promise.all([
-    fetchYearContributions(token, login, year),
-    fetchPullRequestsInWindow(token, login, from, to),
-    fetchIssuesInWindow(token, login, from, to),
+    fetchYearContributions(credential, login, year),
+    fetchPullRequestsInWindow(credential, login, from, to),
+    fetchIssuesInWindow(credential, login, from, to),
   ]);
   await upsertYearContribution(userId, contributions);
   await mapLimit(prs, 8, (pr) => upsertPullRequest(userId, pr));
   await mapLimit(issues, 8, (issue) => upsertIssue(userId, issue));
 }
 
-async function refreshOpenPrs(userId: string, token: string, login: string, createdAt: Date): Promise<void> {
-  const prs = await fetchOpenPullRequests(token, login, createdAt);
+async function refreshOpenPrs(userId: string, credential: string, login: string, createdAt: Date): Promise<void> {
+  const prs = await fetchOpenPullRequests(credential, login, createdAt);
   await mapLimit(prs, 8, (pr) => upsertPullRequest(userId, pr));
 }
 
-async function runBackfill(userId: string, token: string): Promise<void> {
+async function runBackfill(userId: string, credential: string): Promise<void> {
   const user = await getUserById(userId);
   if (!user) throw new Error("User not found");
-  const contributionYears = await fetchContributionYears(token, user.login);
+  const contributionYears = await fetchContributionYears(credential, user.login);
   const currentYear = new Date().getUTCFullYear();
   const years = [...new Set([...contributionYears, currentYear])].sort((a, b) => a - b);
   const run = await createOrResumeSyncRun(userId, "backfill", { years, nextYearIndex: 0 });
@@ -94,10 +105,10 @@ async function runBackfill(userId: string, token: string): Promise<void> {
     const state = parseBackfillState(run.state, years);
     for (let index = state.nextYearIndex; index < state.years.length; index++) {
       const year = state.years[index]!;
-      await persistYear(userId, token, user.login, year);
+      await persistYear(userId, credential, user.login, year);
       await updateSyncRunState(run.id, { years: state.years, nextYearIndex: index + 1 });
     }
-    await refreshOpenPrs(userId, token, user.login, user.github_created_at);
+    await refreshOpenPrs(userId, credential, user.login, user.github_created_at);
     await rebuildSnapshot(userId);
     await finishSyncRun(run.id);
   } catch (error) {
@@ -106,12 +117,12 @@ async function runBackfill(userId: string, token: string): Promise<void> {
   }
 }
 
-async function runIncremental(userId: string, token: string): Promise<void> {
+async function runIncremental(userId: string, credential: string): Promise<void> {
   const user = await getUserById(userId);
   if (!user) throw new Error("User not found");
   const previous = await getLastCompletedSyncAt(userId);
   if (!previous) {
-    await runBackfill(userId, token);
+    await runBackfill(userId, credential);
     return;
   }
   const run = await createOrResumeSyncRun(userId, "incremental", {});
@@ -119,14 +130,14 @@ async function runIncremental(userId: string, token: string): Promise<void> {
     const from = new Date(Math.max(user.github_created_at.getTime(), previous.getTime() - 10 * 60 * 1000));
     const to = new Date();
     const [prs, issues, contributions] = await Promise.all([
-      fetchPullRequestsInWindow(token, user.login, from, to, "updated"),
-      fetchIssuesInWindow(token, user.login, from, to, "updated"),
-      fetchYearContributions(token, user.login, to.getUTCFullYear()),
+      fetchPullRequestsInWindow(credential, user.login, from, to, "updated"),
+      fetchIssuesInWindow(credential, user.login, from, to, "updated"),
+      fetchYearContributions(credential, user.login, to.getUTCFullYear()),
     ]);
     await mapLimit(prs, 8, (pr) => upsertPullRequest(userId, pr));
     await mapLimit(issues, 8, (issue) => upsertIssue(userId, issue));
     await upsertYearContribution(userId, contributions);
-    await refreshOpenPrs(userId, token, user.login, user.github_created_at);
+    await refreshOpenPrs(userId, credential, user.login, user.github_created_at);
     await rebuildSnapshot(userId);
     await finishSyncRun(run.id);
   } catch (error) {
@@ -135,11 +146,11 @@ async function runIncremental(userId: string, token: string): Promise<void> {
   }
 }
 
-async function reconcileRepositories(userId: string, token: string): Promise<boolean> {
+async function reconcileRepositories(userId: string, credential: string): Promise<boolean> {
   const repositories = await listRepositoriesForUser(userId);
   let removed = false;
   await mapLimit(repositories, 4, async (repository) => {
-    const current = await fetchRepositoryMetadata(token, repository.fullName);
+    const current = await fetchRepositoryMetadata(credential, repository.fullName);
     if (!current) {
       await removeUserRepositoryData(userId, repository.githubId);
       removed = true;
@@ -150,15 +161,15 @@ async function reconcileRepositories(userId: string, token: string): Promise<boo
   return removed;
 }
 
-async function refreshContributionHistory(userId: string, token: string, login: string): Promise<void> {
-  const contributionYears = await fetchContributionYears(token, login);
+async function refreshContributionHistory(userId: string, credential: string, login: string): Promise<void> {
+  const contributionYears = await fetchContributionYears(credential, login);
   await mapLimit(contributionYears, 3, async (year) => {
-    await upsertYearContribution(userId, await fetchYearContributions(token, login, year));
+    await upsertYearContribution(userId, await fetchYearContributions(credential, login, year));
   });
   await deleteYearContributionsNotIn(userId, contributionYears);
 }
 
-async function runReconcile(userId: string, token: string): Promise<void> {
+async function runReconcile(userId: string, credential: string): Promise<void> {
   const user = await getUserById(userId);
   if (!user) throw new Error("User not found");
   const run = await createOrResumeSyncRun(userId, "reconcile", {});
@@ -166,11 +177,11 @@ async function runReconcile(userId: string, token: string): Promise<void> {
     const current = new Date().getUTCFullYear();
     const earliest = user.github_created_at.getUTCFullYear();
     for (const year of [current - 1, current].filter((year) => year >= earliest)) {
-      await persistYear(userId, token, user.login, year);
+      await persistYear(userId, credential, user.login, year);
     }
-    await refreshOpenPrs(userId, token, user.login, user.github_created_at);
-    const repositorySetChanged = await reconcileRepositories(userId, token);
-    if (repositorySetChanged) await refreshContributionHistory(userId, token, user.login);
+    await refreshOpenPrs(userId, credential, user.login, user.github_created_at);
+    const repositorySetChanged = await reconcileRepositories(userId, credential);
+    if (repositorySetChanged) await refreshContributionHistory(userId, credential, user.login);
     await rebuildSnapshot(userId);
     await finishSyncRun(run.id);
   } catch (error) {
@@ -179,12 +190,12 @@ async function runReconcile(userId: string, token: string): Promise<void> {
   }
 }
 
-async function accessTokenForUser(userId: string): Promise<string> {
+async function credentialForUser(userId: string): Promise<{ credential: string; claimed: boolean }> {
   const credential = await getGitHubCredential(userId);
-  if (!credential) throw new Error("GitHub account is disconnected");
+  if (!credential) return { credential: githubAppAuthorization(), claimed: false };
   if (credential.scopes.trim() !== "") throw new Error("Ginmap refuses GitHub credentials with non-empty OAuth scopes");
   const needsRefresh = credential.tokenExpiresAt != null && credential.tokenExpiresAt.getTime() <= Date.now() + 5 * 60 * 1000;
-  if (!needsRefresh) return decryptToken(credential.tokenCiphertext);
+  if (!needsRefresh) return { credential: decryptToken(credential.tokenCiphertext), claimed: true };
   if (!credential.refreshTokenCiphertext) throw new Error("GitHub access token expired; reconnect GitHub");
   if (credential.refreshTokenExpiresAt && credential.refreshTokenExpiresAt.getTime() <= Date.now()) throw new Error("GitHub refresh token expired; reconnect GitHub");
   const refreshed = await refreshOAuthToken(githubClientId(), githubClientSecret(), decryptToken(credential.refreshTokenCiphertext));
@@ -197,17 +208,27 @@ async function accessTokenForUser(userId: string): Promise<string> {
     refreshTokenExpiresAt: refreshed.refreshTokenExpiresIn == null ? null : new Date(now + refreshed.refreshTokenExpiresIn * 1000),
     scopes: refreshed.scope,
   });
-  return refreshed.accessToken;
+  return { credential: refreshed.accessToken, claimed: true };
+}
+
+async function refreshIdentity(userId: string, credential: string, claimed: boolean): Promise<void> {
+  const existing = await getUserById(userId);
+  if (!existing) throw new Error("User not found");
+  const identity = claimed
+    ? await fetchViewerIdentity(credential)
+    : await fetchPublicIdentity(credential, existing.login);
+  if (!identity) throw new Error("GitHub user is no longer public or does not exist");
+  if (identity.githubId !== existing.github_id) throw new Error("GitHub identity changed unexpectedly");
+  const refreshed = await upsertUser(identity);
+  if (refreshed.id !== userId) throw new Error("GitHub identity changed unexpectedly");
 }
 
 async function processJob(job: { id: string; userId: string; kind: SyncKind; attempts: number }): Promise<void> {
-  const token = await accessTokenForUser(job.userId);
-  const identity = await fetchViewerIdentity(token);
-  const refreshedUser = await upsertUser(identity);
-  if (refreshedUser.id !== job.userId) throw new Error("GitHub authorization identity changed unexpectedly");
-  if (job.kind === "backfill") await runBackfill(job.userId, token);
-  if (job.kind === "incremental") await runIncremental(job.userId, token);
-  if (job.kind === "reconcile") await runReconcile(job.userId, token);
+  const { credential, claimed } = await credentialForUser(job.userId);
+  await refreshIdentity(job.userId, credential, claimed);
+  if (job.kind === "backfill") await runBackfill(job.userId, credential);
+  if (job.kind === "incremental") await runIncremental(job.userId, credential);
+  if (job.kind === "reconcile") await runReconcile(job.userId, credential);
 }
 
 async function loop(): Promise<void> {
@@ -216,7 +237,9 @@ async function loop(): Promise<void> {
     lastLoopAt = Date.now();
     if (Date.now() - lastScheduler > 5 * 60 * 1000) {
       try {
-        await enqueueDueSyncs(syncIntervalHours(), reconcileIntervalHours());
+        await enqueueDuePublicSyncs(syncIntervalHours(), reconcileIntervalHours());
+        const deleted = await deleteExpiredUnclaimedProfiles(unclaimedRetentionDays());
+        if (deleted > 0) console.log(JSON.stringify({ event: "profiles.expired", count: deleted }));
         lastScheduler = Date.now();
       } catch (error) {
         console.error(JSON.stringify({ event: "scheduler.failed", error: error instanceof Error ? error.message : String(error) }));
