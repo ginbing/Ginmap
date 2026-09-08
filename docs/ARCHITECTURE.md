@@ -19,41 +19,45 @@ The public product is zero-config. Infrastructure stays behind the hosted servic
 ## Public flow
 
 1. A reader opens `/<github-login>`, `/<github-login>.svg`, or `/<github-login>.json`.
-2. If Ginmap has never seen the login, the web process verifies the public GitHub identity with the hosted OAuth App credentials, creates the local profile, and queues a lifetime backfill.
-3. The first HTML view renders a stable generation state while the worker builds the snapshot. JSON returns `202` with `Retry-After`; SVG returns a valid pending card.
-4. Returning requests read the last-good snapshot from PostgreSQL. Public rendering never reconstructs a GitHub lifetime synchronously.
+2. Existing profiles are served from the last-good PostgreSQL snapshot.
+3. For a new login, Ginmap applies global/per-requester admission control, checks its short-lived negative cache and owner opt-out tombstones, verifies the server public-data credential, then resolves the public GitHub identity.
+4. Ginmap creates at most one active sync job for the profile. HTML shows a generation state, JSON returns `202` with `Retry-After`, and SVG returns a valid pending card.
 5. Active profiles receive incremental refreshes and slower reconciliation. Unclaimed profiles can expire after inactivity.
 
 ## Claim flow
 
-Claiming is optional. A profile owner starts GitHub OAuth from `Claim this Ginmap`.
+Claiming is optional. Ginmap requests no OAuth scopes and verifies the authenticated GitHub numeric user ID against the profile being claimed.
 
-Ginmap requests no OAuth scopes, verifies that the authenticated GitHub numeric user ID matches the profile being claimed, encrypts the credential, and creates a session. The owner can then control presentation and indexing. Claiming does not create the public profile and does not grant permission to rewrite GitHub facts.
+Ownership verification is persistent and separate from the OAuth connection. Disconnecting removes the credential and revokes sessions without erasing the owner's visibility/indexing choices. Deleting a claimed profile stores a minimal opt-out tombstone so anonymous lookup cannot immediately recreate it; a later verified claim can remove the opt-out.
 
-The worker prefers the owner's no-scope OAuth token for a claimed profile. Anonymous profiles use the hosted OAuth App's public-data credentials.
+## GitHub credential boundary
+
+Anonymous ingestion uses a server-owned no-scope OAuth token. Ginmap verifies `X-OAuth-Scopes` is empty before using it. The operator should use a dedicated service account with no private repository or organization access.
+
+Claimed profiles may use the owner's no-scope OAuth token while it remains connected. All GitHub API traffic passes through one serialized request queue. Rate-limit handling respects `Retry-After` and `X-RateLimit-Reset`, including GraphQL primary-limit failures that arrive with HTTP 200.
 
 ## Data flow
 
 1. Read GitHub contribution years through GraphQL.
 2. Process years oldest to newest and persist a checkpoint after each year.
-3. Find authored PRs and issues through GitHub Search. Search windows above GitHub's 1,000-result retrieval ceiling are recursively split by time until each partition can be exhausted.
-4. Store GitHub-counted contribution aggregates separately from exact authored PR/issue records.
+3. Find authored PRs and issues through GitHub Search. Search windows above the 1,000-result retrieval ceiling are recursively split until each partition is exhaustible.
+4. Store GitHub-counted contribution aggregates separately from exact authored PR/issue records, including PR/issue titles and repository context.
 5. Aggregate repository relationships and build one profile snapshot.
-6. Split presentation into `Projects` and `External contributions` from repository ownership.
+6. `Projects` contains owned non-fork repositories with measurable work. `External contributions` contains work in repositories owned elsewhere. Personal forks are not presented as original projects.
 7. Serve HTML, SVG, and JSON from the same snapshot and settings.
 
-## Sync strategy
+## Hidden work
 
-`backfill` builds lifetime history. `incremental` updates recently changed work and current-year contribution data. `reconcile` refreshes recent years, open PRs, repository metadata, renames, deletions, and visibility changes.
+Repository hiding is a public-data boundary, not a visual-only filter. Ginmap recomputes PR, issue, diff, and repository totals from visible repositories. GitHub account-wide contribution/commit/review totals and yearly history are withheld when any repository is hidden because they cannot always be subtracted reliably.
 
-Jobs use PostgreSQL and `FOR UPDATE SKIP LOCKED`. Failures retry with bounded exponential backoff. GitHub outages never replace a valid profile with an error if a last-good snapshot exists.
+## Sync and identity
 
-## Identity
+`backfill` builds lifetime history. `incremental` updates recently changed work and current-year data. `reconcile` refreshes recent years, open PRs, repository metadata, deletions, and visibility changes.
 
-GitHub numeric IDs are durable identity for people and repositories. Names are presentation fields. Login aliases preserve old profile links across GitHub username changes.
+GitHub numeric IDs are durable identity for people and repositories. Public users are re-resolved by `GET /user/{account_id}` during synchronization, so username changes do not depend on the old login still resolving. Login aliases keep old Ginmap URLs redirectable.
 
-## Privacy and security boundary
+Jobs are PostgreSQL-backed and claimed with `FOR UPDATE SKIP LOCKED`. A partial unique index permits only one pending/running job per profile. Failures retry with bounded backoff. GitHub outages do not replace a valid last-good snapshot.
 
-The default product ingests public GitHub data only. It does not request repository write access or private-repository access. Unclaimed profiles are `noindex` by default. Claimed owners can explicitly enable indexing, hide repositories, disable their public profile, disconnect the claim, or delete stored Ginmap data.
+## Database changes
 
-OAuth credentials are encrypted at rest. Public APIs never expose credentials, sessions, internal database IDs, or repositories hidden by the owner.
+SQL migrations are applied in filename order, transactionally, and recorded in `schema_migrations`. An applied migration is not rerun on later deploys.
