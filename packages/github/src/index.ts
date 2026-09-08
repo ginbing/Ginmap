@@ -14,7 +14,13 @@ function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-async function githubFetch(url: string, token: string, init: RequestInit = {}, allowedStatuses: number[] = []): Promise<Response> {
+function authorizationHeader(credential: string): string {
+  return credential.startsWith("Basic ") || credential.startsWith("Bearer ")
+    ? credential
+    : `Bearer ${credential}`;
+}
+
+async function githubFetch(url: string, credential: string, init: RequestInit = {}, allowedStatuses: number[] = []): Promise<Response> {
   let lastResponse: Response | undefined;
   let lastNetworkError: unknown;
   for (let attempt = 0; attempt < 4; attempt++) {
@@ -24,7 +30,7 @@ async function githubFetch(url: string, token: string, init: RequestInit = {}, a
         ...init,
         headers: {
           Accept: "application/vnd.github+json",
-          Authorization: `Bearer ${token}`,
+          Authorization: authorizationHeader(credential),
           "X-GitHub-Api-Version": "2026-03-10",
           "User-Agent": "ginmap",
           ...(init.headers ?? {}),
@@ -53,8 +59,8 @@ async function githubFetch(url: string, token: string, init: RequestInit = {}, a
   throw new Error(`GitHub API request failed (network): ${lastNetworkError instanceof Error ? lastNetworkError.message : String(lastNetworkError ?? "unknown error")}`);
 }
 
-async function graphql<T>(token: string, query: string, variables: Record<string, unknown>): Promise<T> {
-  const response = await githubFetch(GRAPHQL, token, {
+async function graphql<T>(credential: string, query: string, variables: Record<string, unknown>): Promise<T> {
+  const response = await githubFetch(GRAPHQL, credential, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ query, variables }),
@@ -106,11 +112,9 @@ export async function refreshOAuthToken(clientId: string, clientSecret: string, 
   return parseOAuthTokenPayload(await response.json());
 }
 
-export async function fetchViewerIdentity(token: string): Promise<GitHubIdentity> {
-  const response = await githubFetch(`${REST}/user`, token);
-  const user = (await response.json()) as {
-    id: number; node_id?: string; login: string; avatar_url: string; html_url: string; created_at: string;
-  };
+function mapRestUser(user: {
+  id: number; node_id?: string; login: string; avatar_url: string; html_url: string; created_at: string;
+}): GitHubIdentity {
   return {
     githubId: String(user.id),
     nodeId: user.node_id ?? null,
@@ -119,6 +123,21 @@ export async function fetchViewerIdentity(token: string): Promise<GitHubIdentity
     profileUrl: user.html_url,
     createdAt: user.created_at,
   };
+}
+
+export async function fetchViewerIdentity(credential: string): Promise<GitHubIdentity> {
+  const response = await githubFetch(`${REST}/user`, credential);
+  return mapRestUser(await response.json() as {
+    id: number; node_id?: string; login: string; avatar_url: string; html_url: string; created_at: string;
+  });
+}
+
+export async function fetchPublicIdentity(credential: string, login: string): Promise<GitHubIdentity | null> {
+  const response = await githubFetch(`${REST}/users/${encodeURIComponent(login)}`, credential, {}, [404]);
+  if (response.status === 404) return null;
+  return mapRestUser(await response.json() as {
+    id: number; node_id?: string; login: string; avatar_url: string; html_url: string; created_at: string;
+  });
 }
 
 interface GraphRepository {
@@ -155,8 +174,8 @@ const REPOSITORY_FIELDS = `
   owner { login avatarUrl }
 `;
 
-export async function fetchContributionYears(token: string, login: string): Promise<number[]> {
-  const data = await graphql<{ user: { contributionsCollection: { contributionYears: number[] } } | null }>(token, `
+export async function fetchContributionYears(credential: string, login: string): Promise<number[]> {
+  const data = await graphql<{ user: { contributionsCollection: { contributionYears: number[] } } | null }>(credential, `
     query ContributionYears($login: String!) {
       user(login: $login) { contributionsCollection { contributionYears } }
     }
@@ -170,7 +189,7 @@ interface ContributionGroup {
   contributions: { totalCount: number };
 }
 
-export async function fetchYearContributions(token: string, login: string, year: number): Promise<YearContributionRecord> {
+export async function fetchYearContributions(credential: string, login: string, year: number): Promise<YearContributionRecord> {
   const from = new Date(Date.UTC(year, 0, 1)).toISOString();
   const to = new Date(Date.UTC(year, 11, 31, 23, 59, 59)).toISOString();
   const data = await graphql<{
@@ -188,7 +207,7 @@ export async function fetchYearContributions(token: string, login: string, year:
         pullRequestReviewContributionsByRepository: ContributionGroup[];
       };
     } | null;
-  }>(token, `
+  }>(credential, `
     query YearContributions($login: String!, $from: DateTime!, $to: DateTime!) {
       user(login: $login) {
         contributionsCollection(from: $from, to: $to) {
@@ -221,7 +240,6 @@ export async function fetchYearContributions(token: string, login: string, year:
   apply(c.issueContributionsByRepository, "issues");
   apply(c.pullRequestContributionsByRepository, "pullRequests");
   apply(c.pullRequestReviewContributionsByRepository, "reviews");
-  const repositories = [...byRepo.values()];
   return {
     year,
     totalContributions: Math.max(0, c.contributionCalendar.totalContributions - c.restrictedContributionsCount),
@@ -230,7 +248,7 @@ export async function fetchYearContributions(token: string, login: string, year:
     pullRequests: c.totalPullRequestContributions,
     reviews: c.totalPullRequestReviewContributions,
     restrictedContributions: c.restrictedContributionsCount,
-    repositories,
+    repositories: [...byRepo.values()],
   };
 }
 
@@ -274,8 +292,8 @@ function buildSearch(login: string, kind: "pr" | "issue", field: "created" | "up
   return `is:${kind} author:${login} ${field}:${qualifierDate(window.from)}..${qualifierDate(window.to)} ${extra}`.trim();
 }
 
-async function searchCount(token: string, query: string): Promise<number> {
-  const data = await graphql<{ search: { issueCount: number } }>(token, `
+async function searchCount(credential: string, query: string): Promise<number> {
+  const data = await graphql<{ search: { issueCount: number } }>(credential, `
     query SearchCount($query: String!) { search(query: $query, type: ISSUE, first: 1) { issueCount } }
   `, { query });
   return data.search.issueCount;
@@ -294,8 +312,8 @@ interface GraphIssue {
   createdAt: string; updatedAt: string; closedAt: string | null; url: string; repository: GraphRepository;
 }
 
-async function fetchPrSearchPage(token: string, query: string, after: string | null): Promise<{ nodes: GraphPr[]; hasNextPage: boolean; endCursor: string | null }> {
-  const data = await graphql<{ search: { nodes: Array<GraphPr | null>; pageInfo: { hasNextPage: boolean; endCursor: string | null } } }>(token, `
+async function fetchPrSearchPage(credential: string, query: string, after: string | null): Promise<{ nodes: GraphPr[]; hasNextPage: boolean; endCursor: string | null }> {
+  const data = await graphql<{ search: { nodes: Array<GraphPr | null>; pageInfo: { hasNextPage: boolean; endCursor: string | null } } }>(credential, `
     query SearchPrs($query: String!, $after: String) {
       search(query: $query, type: ISSUE, first: 100, after: $after) {
         pageInfo { hasNextPage endCursor }
@@ -311,8 +329,8 @@ async function fetchPrSearchPage(token: string, query: string, after: string | n
   return { nodes: data.search.nodes.filter((node): node is GraphPr => Boolean(node && node.__typename === "PullRequest")), ...data.search.pageInfo };
 }
 
-async function fetchIssueSearchPage(token: string, query: string, after: string | null): Promise<{ nodes: GraphIssue[]; hasNextPage: boolean; endCursor: string | null }> {
-  const data = await graphql<{ search: { nodes: Array<GraphIssue | null>; pageInfo: { hasNextPage: boolean; endCursor: string | null } } }>(token, `
+async function fetchIssueSearchPage(credential: string, query: string, after: string | null): Promise<{ nodes: GraphIssue[]; hasNextPage: boolean; endCursor: string | null }> {
+  const data = await graphql<{ search: { nodes: Array<GraphIssue | null>; pageInfo: { hasNextPage: boolean; endCursor: string | null } } }>(credential, `
     query SearchIssues($query: String!, $after: String) {
       search(query: $query, type: ISSUE, first: 100, after: $after) {
         pageInfo { hasNextPage endCursor }
@@ -361,11 +379,11 @@ function mapIssue(node: GraphIssue): IssueRecord {
   };
 }
 
-async function fetchAllPrPages(token: string, query: string): Promise<PullRequestRecord[]> {
+async function fetchAllPrPages(credential: string, query: string): Promise<PullRequestRecord[]> {
   const items: PullRequestRecord[] = [];
   let after: string | null = null;
   for (;;) {
-    const page = await fetchPrSearchPage(token, query, after);
+    const page = await fetchPrSearchPage(credential, query, after);
     items.push(...page.nodes.map(mapPr));
     if (!page.hasNextPage || !page.endCursor) break;
     after = page.endCursor;
@@ -373,11 +391,11 @@ async function fetchAllPrPages(token: string, query: string): Promise<PullReques
   return items;
 }
 
-async function fetchAllIssuePages(token: string, query: string): Promise<IssueRecord[]> {
+async function fetchAllIssuePages(credential: string, query: string): Promise<IssueRecord[]> {
   const items: IssueRecord[] = [];
   let after: string | null = null;
   for (;;) {
-    const page = await fetchIssueSearchPage(token, query, after);
+    const page = await fetchIssueSearchPage(credential, query, after);
     items.push(...page.nodes.map(mapIssue));
     if (!page.hasNextPage || !page.endCursor) break;
     after = page.endCursor;
@@ -389,26 +407,26 @@ function dedupeByNode<T extends { nodeId: string }>(items: T[]): T[] {
   return [...new Map(items.map((item) => [item.nodeId, item])).values()];
 }
 
-export async function fetchPullRequestsInWindow(token: string, login: string, from: Date, to: Date, field: "created" | "updated" = "created", extra = ""): Promise<PullRequestRecord[]> {
+export async function fetchPullRequestsInWindow(credential: string, login: string, from: Date, to: Date, field: "created" | "updated" = "created", extra = ""): Promise<PullRequestRecord[]> {
   const items = await walkAdaptiveWindows({
     from, to,
-    count: (window) => searchCount(token, buildSearch(login, "pr", field, window, extra)),
-    fetch: (window) => fetchAllPrPages(token, buildSearch(login, "pr", field, window, extra)),
+    count: (window) => searchCount(credential, buildSearch(login, "pr", field, window, extra)),
+    fetch: (window) => fetchAllPrPages(credential, buildSearch(login, "pr", field, window, extra)),
   });
   return dedupeByNode(items);
 }
 
-export async function fetchIssuesInWindow(token: string, login: string, from: Date, to: Date, field: "created" | "updated" = "created"): Promise<IssueRecord[]> {
+export async function fetchIssuesInWindow(credential: string, login: string, from: Date, to: Date, field: "created" | "updated" = "created"): Promise<IssueRecord[]> {
   const items = await walkAdaptiveWindows({
     from, to,
-    count: (window) => searchCount(token, buildSearch(login, "issue", field, window)),
-    fetch: (window) => fetchAllIssuePages(token, buildSearch(login, "issue", field, window)),
+    count: (window) => searchCount(credential, buildSearch(login, "issue", field, window)),
+    fetch: (window) => fetchAllIssuePages(credential, buildSearch(login, "issue", field, window)),
   });
   return dedupeByNode(items);
 }
 
-export async function fetchRepositoryMetadata(token: string, fullName: string): Promise<RepositoryIdentity | null> {
-  const response = await githubFetch(`${REST}/repos/${fullName}`, token, {}, [404]);
+export async function fetchRepositoryMetadata(credential: string, fullName: string): Promise<RepositoryIdentity | null> {
+  const response = await githubFetch(`${REST}/repos/${fullName}`, credential, {}, [404]);
   if (response.status === 404) return null;
   const repo = await response.json() as {
     id: number; node_id?: string; name: string; full_name: string; html_url: string; stargazers_count: number; fork: boolean; archived: boolean;
@@ -421,6 +439,6 @@ export async function fetchRepositoryMetadata(token: string, fullName: string): 
   };
 }
 
-export async function fetchOpenPullRequests(token: string, login: string, accountCreatedAt: Date): Promise<PullRequestRecord[]> {
-  return fetchPullRequestsInWindow(token, login, accountCreatedAt, new Date(), "created", "is:open");
+export async function fetchOpenPullRequests(credential: string, login: string, accountCreatedAt: Date): Promise<PullRequestRecord[]> {
+  return fetchPullRequestsInWindow(credential, login, accountCreatedAt, new Date(), "created", "is:open");
 }
