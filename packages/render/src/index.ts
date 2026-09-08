@@ -1,4 +1,4 @@
-import type { ProfileSettings, ProfileSnapshot, Theme } from "@ginmap/model";
+import type { ProfileSettings, ProfileSnapshot, RepositoryWorkSummary, Theme } from "@ginmap/model";
 
 export function escapeXml(value: string): string {
   return value.replace(/[&<>"']/g, (character) => ({
@@ -9,6 +9,19 @@ export function escapeXml(value: string): string {
 function compact(value: number): string {
   if (Math.abs(value) < 1000) return String(value);
   return new Intl.NumberFormat("en", { notation: "compact", maximumFractionDigits: 1 }).format(value);
+}
+
+function renderRepoRows(repositories: RepositoryWorkSummary[], startY: number, colors: { text: string; muted: string }, label: string): { svg: string; endY: number } {
+  if (repositories.length === 0) return { svg: "", endY: startY };
+  const heading = `<text x="28" y="${startY}" font-size="12" font-weight="650" letter-spacing="0.8" fill="${colors.muted}">${label}</text>`;
+  const rows = repositories.map((repository, index) => {
+    const y = startY + 32 + index * 33;
+    const detail = repository.pullRequests > 0
+      ? `${repository.pullRequests} PR${repository.pullRequests === 1 ? "" : "s"} · ${repository.mergedPullRequests} merged`
+      : `${repository.commitDays} commit days · ${repository.reviews} reviews`;
+    return `<text x="28" y="${y}" font-size="14" font-weight="600" fill="${colors.text}">${escapeXml(repository.fullName)}</text><text x="732" y="${y}" text-anchor="end" font-size="13" fill="${colors.muted}">${escapeXml(detail)}</text>`;
+  }).join("");
+  return { svg: heading + rows, endY: startY + 32 + repositories.length * 33 };
 }
 
 export function renderWorkCard(snapshot: ProfileSnapshot, settings: ProfileSettings, theme: Theme): string {
@@ -26,24 +39,23 @@ export function renderWorkCard(snapshot: ProfileSnapshot, settings: ProfileSetti
   if (settings.visibleMetrics.repositories) metrics.push({ label: "repos", value: compact(snapshot.lifetime.repositoriesWorkedIn) });
   if (settings.visibleMetrics.contributions) metrics.push({ label: "contribs", value: compact(snapshot.lifetime.contributions) });
   const visibleMetrics = metrics.slice(0, 6);
-  const topRepos = snapshot.repositories.slice(0, 4);
+  const projects = snapshot.repositories.filter((repository) => repository.role === "owner").slice(0, 2);
+  const external = snapshot.repositories.filter((repository) => repository.role === "contributor").slice(0, 3);
   const width = 760;
   const metricStart = 28;
   const metricWidth = Math.floor((width - 56) / Math.max(visibleMetrics.length, 1));
-  const repoY = 164;
-  const codeY = repoY + 34 + topRepos.length * 34;
-  const height = settings.visibleMetrics.codeChanged ? codeY + 54 : codeY + 28;
   const metricSvg = visibleMetrics.map((metric, index) => {
     const x = metricStart + index * metricWidth;
     return `<text x="${x}" y="112" font-size="22" font-weight="650" fill="${colors.text}">${escapeXml(metric.value)}</text><text x="${x}" y="133" font-size="12" fill="${colors.muted}">${escapeXml(metric.label)}</text>`;
   }).join("");
-  const reposSvg = topRepos.map((repository, index) => {
-    const y = repoY + 33 + index * 34;
-    const detail = repository.pullRequests > 0
-      ? `${repository.pullRequests} PR${repository.pullRequests === 1 ? "" : "s"} · ${repository.mergedPullRequests} merged`
-      : `${repository.commitDays} commit days · ${repository.reviews} reviews`;
-    return `<text x="28" y="${y}" font-size="14" font-weight="600" fill="${colors.text}">${escapeXml(repository.fullName)}</text><text x="732" y="${y}" text-anchor="end" font-size="13" fill="${colors.muted}">${escapeXml(detail)}</text>`;
-  }).join("");
+
+  let y = 164;
+  const projectRows = renderRepoRows(projects, y, colors, "PROJECTS");
+  y = projectRows.endY + (projects.length ? 18 : 0);
+  const externalRows = renderRepoRows(external, y, colors, "EXTERNAL CONTRIBUTIONS");
+  y = externalRows.endY;
+  const codeY = y + 36;
+  const height = settings.visibleMetrics.codeChanged ? codeY + 54 : codeY + 28;
   const codeSvg = settings.visibleMetrics.codeChanged
     ? `<line x1="28" y1="${codeY - 18}" x2="732" y2="${codeY - 18}" stroke="${colors.border}"/><text x="28" y="${codeY + 9}" font-size="13" fill="${colors.muted}">Code changed through authored PRs</text><text x="732" y="${codeY + 9}" text-anchor="end" font-size="13" font-weight="600" fill="${colors.text}"><tspan fill="${colors.accent}">+${escapeXml(compact(snapshot.lifetime.additions))}</tspan><tspan fill="${colors.muted}"> / </tspan><tspan fill="#cf222e">-${escapeXml(compact(snapshot.lifetime.deletions))}</tspan></text>`
     : "";
@@ -58,8 +70,8 @@ export function renderWorkCard(snapshot: ProfileSnapshot, settings: ProfileSetti
 <text x="732" y="40" text-anchor="end" font-size="13" font-weight="600" fill="${colors.secondary}">Ginmap</text>
 <line x1="28" y1="78" x2="732" y2="78" stroke="${colors.border}"/>
 ${metricSvg}
-<text x="28" y="${repoY}" font-size="12" font-weight="650" letter-spacing="0.8" fill="${colors.muted}">WORKED IN</text>
-${reposSvg}
+${projectRows.svg}
+${externalRows.svg}
 ${codeSvg}
 <text x="732" y="${height - 16}" text-anchor="end" font-size="11" fill="${colors.muted}">Updated ${updated}</text>
 </svg>`;
