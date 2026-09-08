@@ -23,18 +23,11 @@ export async function rebuildSnapshot(userId: string): Promise<ProfileSnapshot> 
   if (!user) throw new Error("User not found");
   await rebuildRepositoryContributions(userId);
   const [years, repositories, pr, issues] = await Promise.all([
-    listYearContributions(userId),
-    listRepositoryWork(userId),
-    getPrTotals(userId),
-    getIssueTotal(userId),
+    listYearContributions(userId), listRepositoryWork(userId), getPrTotals(userId), getIssueTotal(userId),
   ]);
   const publicYears = years.filter((year) => year.totalContributions > 0 || year.commits > 0 || year.issues > 0 || year.pullRequests > 0 || year.reviews > 0);
   const contributionTotals = publicYears.reduce(
-    (acc, year) => ({
-      contributions: acc.contributions + year.totalContributions,
-      commits: acc.commits + year.commits,
-      reviews: acc.reviews + year.reviews,
-    }),
+    (acc, year) => ({ contributions: acc.contributions + year.totalContributions, commits: acc.commits + year.commits, reviews: acc.reviews + year.reviews }),
     { contributions: 0, commits: 0, reviews: 0 },
   );
   const snapshot: ProfileSnapshot = {
@@ -42,36 +35,21 @@ export async function rebuildSnapshot(userId: string): Promise<ProfileSnapshot> 
     metricsVersion: METRICS_VERSION,
     calculatedAt: new Date().toISOString(),
     identity: {
-      githubId: user.github_id,
-      nodeId: user.github_node_id,
-      login: user.login,
-      avatarUrl: user.avatar_url,
-      profileUrl: user.profile_url,
-      createdAt: user.github_created_at.toISOString(),
+      githubId: user.github_id, nodeId: user.github_node_id, login: user.login, avatarUrl: user.avatar_url,
+      profileUrl: user.profile_url, createdAt: user.github_created_at.toISOString(),
     },
     lifetime: {
-      contributions: contributionTotals.contributions,
-      commits: contributionTotals.commits,
-      pullRequests: pr.total,
-      mergedPullRequests: pr.merged,
-      openPullRequests: pr.open,
-      closedUnmergedPullRequests: pr.closedUnmerged,
-      issues,
-      reviews: contributionTotals.reviews,
-      repositoriesWorkedIn: repositories.length,
-      additions: pr.additions,
-      deletions: pr.deletions,
-      changedFiles: pr.changedFiles,
+      contributions: contributionTotals.contributions, commits: contributionTotals.commits,
+      pullRequests: pr.total, mergedPullRequests: pr.merged, openPullRequests: pr.open, closedUnmergedPullRequests: pr.closedUnmerged,
+      issues, reviews: contributionTotals.reviews, repositoriesWorkedIn: repositories.length,
+      additions: pr.additions, deletions: pr.deletions, changedFiles: pr.changedFiles,
     },
     years: publicYears.map((year) => ({
-      year: year.year,
-      contributions: year.totalContributions,
-      commits: year.commits,
-      pullRequests: year.pullRequests,
-      issues: year.issues,
-      reviews: year.reviews,
+      year: year.year, contributions: year.totalContributions, commits: year.commits,
+      pullRequests: year.pullRequests, issues: year.issues, reviews: year.reviews,
     })),
     repositories: repositories.sort(defaultRepositorySort),
+    accountWideMetricsAvailable: true,
   };
   await saveSnapshot(userId, snapshot);
   return snapshot;
@@ -81,6 +59,23 @@ function defaultRepositorySort(a: RepositoryWorkSummary, b: RepositoryWorkSummar
   return b.mergedPullRequests - a.mergedPullRequests || b.pullRequests - a.pullRequests ||
     Date.parse(b.lastActivityAt ?? "1970-01-01") - Date.parse(a.lastActivityAt ?? "1970-01-01") ||
     a.fullName.localeCompare(b.fullName);
+}
+
+function visibleLifetime(repositories: RepositoryWorkSummary[]) {
+  return repositories.reduce(
+    (acc, repository) => ({
+      pullRequests: acc.pullRequests + repository.pullRequests,
+      mergedPullRequests: acc.mergedPullRequests + repository.mergedPullRequests,
+      openPullRequests: acc.openPullRequests + repository.openPullRequests,
+      closedUnmergedPullRequests: acc.closedUnmergedPullRequests + repository.closedUnmergedPullRequests,
+      issues: acc.issues + repository.issues,
+      repositoriesWorkedIn: acc.repositoriesWorkedIn + 1,
+      additions: acc.additions + repository.additions,
+      deletions: acc.deletions + repository.deletions,
+      changedFiles: acc.changedFiles + repository.changedFiles,
+    }),
+    { pullRequests: 0, mergedPullRequests: 0, openPullRequests: 0, closedUnmergedPullRequests: 0, issues: 0, repositoriesWorkedIn: 0, additions: 0, deletions: 0, changedFiles: 0 },
+  );
 }
 
 export function applySettings(snapshot: ProfileSnapshot, settings: ProfileSettings): ProfileSnapshot {
@@ -96,15 +91,26 @@ export function applySettings(snapshot: ProfileSnapshot, settings: ProfileSettin
       if (bi != null) return 1;
       return defaultRepositorySort(a, b);
     });
-  return { ...snapshot, repositories };
+  if (hidden.size === 0) return { ...snapshot, repositories, accountWideMetricsAvailable: true };
+  const visible = visibleLifetime(repositories);
+  return {
+    ...snapshot,
+    repositories,
+    accountWideMetricsAvailable: false,
+    years: [],
+    lifetime: {
+      ...snapshot.lifetime,
+      contributions: 0,
+      commits: 0,
+      reviews: 0,
+      ...visible,
+    },
+  };
 }
 
-export function splitWork(repositories: RepositoryWorkSummary[]): {
-  projects: RepositoryWorkSummary[];
-  externalContributions: RepositoryWorkSummary[];
-} {
+export function splitWork(repositories: RepositoryWorkSummary[]): { projects: RepositoryWorkSummary[]; externalContributions: RepositoryWorkSummary[] } {
   return {
-    projects: repositories.filter((repository) => repository.role === "owner"),
+    projects: repositories.filter((repository) => repository.role === "owner" && !repository.isFork),
     externalContributions: repositories.filter((repository) => repository.role === "contributor"),
   };
 }
@@ -127,6 +133,11 @@ export function toPublicSummary(snapshot: ProfileSnapshot, definitionsUrl: strin
     projects,
     externalContributions,
     repositories: snapshot.repositories,
+    accountWideMetrics: {
+      contributions: snapshot.accountWideMetricsAvailable,
+      commits: snapshot.accountWideMetricsAvailable,
+      reviews: snapshot.accountWideMetricsAvailable,
+    },
     definitionsUrl,
   };
 }
