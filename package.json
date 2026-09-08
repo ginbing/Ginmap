@@ -1,0 +1,26 @@
+{
+  "name": "ginmap",
+  "version": "0.1.0",
+  "private": true,
+  "license": "AGPL-3.0-only",
+  "workspaces": ["apps/*", "packages/*"],
+  "scripts": {
+    "build": "npm run build --workspace @ginmap/web && npm run build --workspace @ginmap/worker",
+    "dev": "npm run dev --workspace @ginmap/web",
+    "worker": "npm run dev --workspace @ginmap/worker",
+    "lint": "eslint . --max-warnings=0",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "typecheck": "tsc -p tsconfig.check.json --noEmit",
+    "db:migrate": "tsx scripts/migrate.ts"
+  },
+  "devDependencies": {
+    "@types/node": "^22.15.0",
+    "@types/pg": "^8.15.5",
+    "eslint": "^9.35.0",
+    "eslint-config-next": "16.3.4",
+    "tsx": "^4.20.5",
+    "typescript": "^5.9.2",
+    "vitest": "^3.2.4"
+  }
+}

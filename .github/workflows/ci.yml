@@ -1,0 +1,45 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_DB: ginmap_test
+          POSTGRES_USER: ginmap
+          POSTGRES_PASSWORD: ginmap
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U ginmap -d ginmap_test"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 20
+    env:
+      DATABASE_URL: postgres://ginmap:ginmap@127.0.0.1:5432/ginmap_test
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci --no-audit --no-fund
+      - run: npm run db:migrate
+      - run: npm run db:migrate
+      - run: npm run lint
+      - run: npm test
+      - run: npm run typecheck
+      - run: npm run build
