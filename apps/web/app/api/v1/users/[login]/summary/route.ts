@@ -1,10 +1,19 @@
 import { NextRequest } from "next/server";
 import { applySettings, toPublicSummary } from "@ginmap/analytics";
-import { ensureHostedProfile } from "@ginmap/hosted";
+import { AnonymousProfileRateLimitError, ensureHostedProfile } from "@ginmap/hosted";
+import { requesterKey } from "../../../../../../lib/requester";
 
 export async function GET(request: NextRequest, { params }: { params: Promise<{ login: string }> }) {
   const { login } = await params;
-  const state = await ensureHostedProfile(login);
+  let state;
+  try {
+    state = await ensureHostedProfile(login, requesterKey(request.headers));
+  } catch (error) {
+    if (error instanceof AnonymousProfileRateLimitError) {
+      return Response.json({ error: "rate_limited" }, { status: 429, headers: { "Retry-After": "60", "Cache-Control": "no-store" } });
+    }
+    throw error;
+  }
   if (!state) return Response.json({ error: "not_found" }, { status: 404 });
   if (state.claimed && !state.settings.publicProfile) return Response.json({ error: "not_found" }, { status: 404 });
   if (!state.snapshot) {
