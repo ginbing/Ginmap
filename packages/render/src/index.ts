@@ -18,7 +18,7 @@ function renderRepoRows(repositories: RepositoryWorkSummary[], startY: number, c
     const y = startY + 32 + index * 33;
     const detail = repository.pullRequests > 0
       ? `${repository.pullRequests} PR${repository.pullRequests === 1 ? "" : "s"} · ${repository.mergedPullRequests} merged`
-      : `${repository.commitDays} commit days · ${repository.reviews} reviews`;
+      : `${repository.commits} commits · ${repository.reviews} reviewed PRs`;
     return `<text x="28" y="${y}" font-size="14" font-weight="600" fill="${colors.text}">${escapeXml(repository.fullName)}</text><text x="732" y="${y}" text-anchor="end" font-size="13" fill="${colors.muted}">${escapeXml(detail)}</text>`;
   }).join("");
   return { svg: heading + rows, endY: startY + 32 + repositories.length * 33 };
@@ -35,11 +35,11 @@ export function renderWorkCard(snapshot: ProfileSnapshot, settings: ProfileSetti
     metrics.push({ label: "merged", value: compact(snapshot.lifetime.mergedPullRequests) });
   }
   if (settings.visibleMetrics.issues) metrics.push({ label: "issues", value: compact(snapshot.lifetime.issues) });
-  if (settings.visibleMetrics.reviews) metrics.push({ label: "reviews", value: compact(snapshot.lifetime.reviews) });
+  if (settings.visibleMetrics.reviews && snapshot.accountWideMetricsAvailable) metrics.push({ label: "reviewed PRs", value: compact(snapshot.lifetime.reviews) });
   if (settings.visibleMetrics.repositories) metrics.push({ label: "repos", value: compact(snapshot.lifetime.repositoriesWorkedIn) });
-  if (settings.visibleMetrics.contributions) metrics.push({ label: "contribs", value: compact(snapshot.lifetime.contributions) });
+  if (settings.visibleMetrics.contributions && snapshot.accountWideMetricsAvailable) metrics.push({ label: "contribs", value: compact(snapshot.lifetime.contributions) });
   const visibleMetrics = metrics.slice(0, 6);
-  const projects = snapshot.repositories.filter((repository) => repository.role === "owner").slice(0, 2);
+  const projects = snapshot.repositories.filter((repository) => repository.role === "owner" && !repository.isFork).slice(0, 2);
   const external = snapshot.repositories.filter((repository) => repository.role === "contributor").slice(0, 3);
   const width = 760;
   const metricStart = 28;
