@@ -6,41 +6,17 @@ function required(name: string): string {
   return value;
 }
 
-export function databaseUrl(): string {
-  return required("DATABASE_URL");
-}
-
-export function appUrl(): string {
-  return process.env.NEXT_PUBLIC_APP_URL ?? "http://localhost:3000";
-}
-
-export function githubClientId(): string {
-  return required("GITHUB_CLIENT_ID");
-}
-
-export function githubClientSecret(): string {
-  return required("GITHUB_CLIENT_SECRET");
-}
-
-export function githubPublicToken(): string {
-  return required("GITHUB_PUBLIC_TOKEN");
-}
-
-export function syncIntervalHours(): number {
-  return Math.max(1, Number(process.env.SYNC_INTERVAL_HOURS ?? 6));
-}
-
-export function reconcileIntervalHours(): number {
-  return Math.max(24, Number(process.env.RECONCILE_INTERVAL_HOURS ?? 168));
-}
-
-export function unclaimedRetentionDays(): number {
-  return Math.max(1, Number(process.env.UNCLAIMED_RETENTION_DAYS ?? 30));
-}
-
-export function workerHealthPort(): number {
-  return Math.max(1, Number(process.env.WORKER_HEALTH_PORT ?? 3001));
-}
+export function databaseUrl(): string { return required("DATABASE_URL"); }
+export function appUrl(): string { return process.env.NEXT_PUBLIC_APP_URL ?? "http://localhost:3000"; }
+export function githubClientId(): string { return required("GITHUB_CLIENT_ID"); }
+export function githubClientSecret(): string { return required("GITHUB_CLIENT_SECRET"); }
+export function githubPublicToken(): string { return required("GITHUB_PUBLIC_TOKEN"); }
+export function syncIntervalHours(): number { return Math.max(1, Number(process.env.SYNC_INTERVAL_HOURS ?? 6)); }
+export function reconcileIntervalHours(): number { return Math.max(24, Number(process.env.RECONCILE_INTERVAL_HOURS ?? 168)); }
+export function unclaimedRetentionDays(): number { return Math.max(1, Number(process.env.UNCLAIMED_RETENTION_DAYS ?? 30)); }
+export function workerHealthPort(): number { return Math.max(1, Number(process.env.WORKER_HEALTH_PORT ?? 3001)); }
+export function anonymousProfilesPerMinute(): number { return Math.max(1, Number(process.env.ANONYMOUS_PROFILES_PER_MINUTE ?? 20)); }
+export function anonymousProfilesPerIpPerHour(): number { return Math.max(1, Number(process.env.ANONYMOUS_PROFILES_PER_IP_PER_HOUR ?? 30)); }
 
 function keyFromEnv(name: string): Buffer {
   return createHash("sha256").update(required(name)).digest();
@@ -64,27 +40,28 @@ export function decryptToken(cipherText: string): string {
   return Buffer.concat([decipher.update(Buffer.from(dataText, "base64url")), decipher.final()]).toString("utf8");
 }
 
-export function createSessionToken(userId: string, ttlSeconds = 60 * 60 * 24 * 30): string {
+export interface SessionPayload { userId: string; version: number }
+
+export function createSessionToken(userId: string, version: number, ttlSeconds = 60 * 60 * 24 * 30): string {
   const expires = Math.floor(Date.now() / 1000) + ttlSeconds;
-  const payload = `${userId}.${expires}`;
+  const payload = `${userId}.${version}.${expires}`;
   const sig = createHmac("sha256", required("SESSION_SECRET")).update(payload).digest("base64url");
   return `${payload}.${sig}`;
 }
 
-export function verifySessionToken(token: string | undefined): string | null {
+export function verifySessionToken(token: string | undefined): SessionPayload | null {
   if (!token) return null;
-  const [userId, expiresText, sig] = token.split(".");
-  if (!userId || !expiresText || !sig) return null;
+  const [userId, versionText, expiresText, sig] = token.split(".");
+  if (!userId || !versionText || !expiresText || !sig) return null;
+  const version = Number(versionText);
   const expires = Number(expiresText);
-  if (!Number.isFinite(expires) || expires < Math.floor(Date.now() / 1000)) return null;
-  const payload = `${userId}.${expires}`;
+  if (!Number.isInteger(version) || !Number.isFinite(expires) || expires < Math.floor(Date.now() / 1000)) return null;
+  const payload = `${userId}.${version}.${expires}`;
   const expected = createHmac("sha256", required("SESSION_SECRET")).update(payload).digest("base64url");
   const actualBuffer = Buffer.from(sig);
   const expectedBuffer = Buffer.from(expected);
   if (actualBuffer.length !== expectedBuffer.length || !timingSafeEqual(actualBuffer, expectedBuffer)) return null;
-  return userId;
+  return { userId, version };
 }
 
-export function createOAuthState(): string {
-  return randomBytes(24).toString("base64url");
-}
+export function createOAuthState(): string { return randomBytes(24).toString("base64url"); }
