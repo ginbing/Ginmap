@@ -1,4 +1,4 @@
-export const METRICS_VERSION = "2026-09-v2";
+export const METRICS_VERSION = "2026-09-v3";
 export const API_SCHEMA_VERSION = "1";
 
 export type SyncKind = "backfill" | "incremental" | "reconcile";
@@ -24,6 +24,8 @@ export interface RepositoryIdentity {
   name: string;
   fullName: string;
   htmlUrl: string;
+  description: string | null;
+  primaryLanguage: string | null;
   stars: number;
   isFork: boolean;
   isArchived: boolean;
@@ -33,6 +35,7 @@ export interface PullRequestRecord {
   nodeId: string;
   databaseId: string | null;
   number: number;
+  title: string;
   repository: RepositoryIdentity;
   state: "OPEN" | "CLOSED" | "MERGED";
   merged: boolean;
@@ -50,6 +53,7 @@ export interface IssueRecord {
   nodeId: string;
   databaseId: string | null;
   number: number;
+  title: string;
   repository: RepositoryIdentity;
   state: "OPEN" | "CLOSED";
   createdAt: string;
@@ -60,7 +64,7 @@ export interface IssueRecord {
 
 export interface RepoContributionCounters {
   repository: RepositoryIdentity;
-  commitDays: number;
+  commits: number;
   pullRequests: number;
   issues: number;
   reviews: number;
@@ -83,7 +87,10 @@ export interface RepositoryWorkSummary {
   ownerLogin: string;
   ownerAvatarUrl: string | null;
   htmlUrl: string;
+  description: string | null;
+  primaryLanguage: string | null;
   stars: number;
+  isFork: boolean;
   role: "owner" | "contributor";
   pullRequests: number;
   mergedPullRequests: number;
@@ -91,18 +98,21 @@ export interface RepositoryWorkSummary {
   closedUnmergedPullRequests: number;
   issues: number;
   reviews: number;
-  commitDays: number;
+  commits: number;
   additions: number;
   deletions: number;
   changedFiles: number;
   firstActivityAt: string | null;
   lastActivityAt: string | null;
+  firstActivityYear: number | null;
+  lastActivityYear: number | null;
 }
 
 export interface RepositoryEvidence {
   repository: RepositoryWorkSummary;
   pullRequests: Array<{
     number: number;
+    title: string;
     state: "OPEN" | "CLOSED" | "MERGED";
     merged: boolean;
     additions: number;
@@ -115,6 +125,7 @@ export interface RepositoryEvidence {
   }>;
   issues: Array<{
     number: number;
+    title: string;
     state: "OPEN" | "CLOSED";
     createdAt: string;
     updatedAt: string;
@@ -196,6 +207,11 @@ export interface PublicSummaryResponse {
   projects: RepositoryWorkSummary[];
   externalContributions: RepositoryWorkSummary[];
   repositories: RepositoryWorkSummary[];
+  accountWideMetrics: {
+    contributions: boolean;
+    commits: boolean;
+    reviews: boolean;
+  };
   definitionsUrl: string;
 }
 
