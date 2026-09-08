@@ -22,8 +22,8 @@ export function githubClientSecret(): string {
   return required("GITHUB_CLIENT_SECRET");
 }
 
-export function githubAppAuthorization(): string {
-  return `Basic ${Buffer.from(`${githubClientId()}:${githubClientSecret()}`, "utf8").toString("base64")}`;
+export function githubPublicToken(): string {
+  return required("GITHUB_PUBLIC_TOKEN");
 }
 
 export function syncIntervalHours(): number {
