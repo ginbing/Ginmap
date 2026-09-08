@@ -22,12 +22,20 @@ export function githubClientSecret(): string {
   return required("GITHUB_CLIENT_SECRET");
 }
 
+export function githubAppAuthorization(): string {
+  return `Basic ${Buffer.from(`${githubClientId()}:${githubClientSecret()}`, "utf8").toString("base64")}`;
+}
+
 export function syncIntervalHours(): number {
   return Math.max(1, Number(process.env.SYNC_INTERVAL_HOURS ?? 6));
 }
 
 export function reconcileIntervalHours(): number {
   return Math.max(24, Number(process.env.RECONCILE_INTERVAL_HOURS ?? 168));
+}
+
+export function unclaimedRetentionDays(): number {
+  return Math.max(1, Number(process.env.UNCLAIMED_RETENTION_DAYS ?? 30));
 }
 
 export function workerHealthPort(): number {
