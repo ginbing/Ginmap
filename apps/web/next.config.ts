@@ -1,7 +1,7 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
-  transpilePackages: ["@ginmap/config", "@ginmap/model", "@ginmap/db", "@ginmap/github", "@ginmap/analytics", "@ginmap/render", "@ginmap/hosted"],
+  transpilePackages: ["@ginmap/config", "@ginmap/model", "@ginmap/db", "@ginmap/github", "@ginmap/analytics", "@ginmap/render", "@ginmap/hosted", "@ginmap/operations"],
   async rewrites() {
     return {
       afterFiles: [
