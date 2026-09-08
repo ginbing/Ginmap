@@ -7,16 +7,18 @@ import {
   githubClientId,
   githubClientSecret,
 } from "@ginmap/config";
-import { connectGitHubAccount, enqueueSync, upsertUser } from "@ginmap/db";
+import { connectGitHubAccount, enqueueSync, getSnapshot, getUserByLogin, upsertUser } from "@ginmap/db";
 import { exchangeOAuthCode, fetchViewerIdentity } from "@ginmap/github";
-import { OAUTH_STATE_COOKIE, SESSION_COOKIE } from "../../../../../lib/session";
+import { CLAIM_LOGIN_COOKIE, OAUTH_STATE_COOKIE, SESSION_COOKIE } from "../../../../../lib/session";
 
 export async function GET(request: NextRequest) {
   const code = request.nextUrl.searchParams.get("code");
   const state = request.nextUrl.searchParams.get("state");
   const cookieStore = await cookies();
   const expectedState = cookieStore.get(OAUTH_STATE_COOKIE)?.value;
+  const claimLogin = cookieStore.get(CLAIM_LOGIN_COOKIE)?.value ?? null;
   cookieStore.delete(OAUTH_STATE_COOKIE);
+  cookieStore.delete(CLAIM_LOGIN_COOKIE);
   if (!code || !state || !expectedState || state !== expectedState) {
     return NextResponse.redirect(new URL("/?auth=failed", appUrl()));
   }
@@ -24,6 +26,13 @@ export async function GET(request: NextRequest) {
     const oauth = await exchangeOAuthCode(githubClientId(), githubClientSecret(), code);
     if (oauth.scope.trim() !== "") throw new Error("Ginmap requires a public-data-only GitHub authorization");
     const identity = await fetchViewerIdentity(oauth.accessToken);
+    const target = claimLogin ? await getUserByLogin(claimLogin) : null;
+    if (claimLogin && target && target.github_id !== identity.githubId) {
+      return NextResponse.redirect(new URL(`/${encodeURIComponent(claimLogin)}?claim=wrong-account`, appUrl()));
+    }
+    if (claimLogin && !target && identity.login.toLowerCase() !== claimLogin.toLowerCase()) {
+      return NextResponse.redirect(new URL(`/${encodeURIComponent(claimLogin)}?claim=wrong-account`, appUrl()));
+    }
     const user = await upsertUser(identity);
     const now = Date.now();
     await connectGitHubAccount(user.id, {
@@ -33,7 +42,7 @@ export async function GET(request: NextRequest) {
       refreshTokenExpiresAt: oauth.refreshTokenExpiresIn == null ? null : new Date(now + oauth.refreshTokenExpiresIn * 1000),
       scopes: oauth.scope,
     });
-    await enqueueSync(user.id, "backfill");
+    await enqueueSync(user.id, (await getSnapshot(user.id)) ? "incremental" : "backfill");
     cookieStore.set(SESSION_COOKIE, createSessionToken(user.id), {
       httpOnly: true,
       sameSite: "lax",
