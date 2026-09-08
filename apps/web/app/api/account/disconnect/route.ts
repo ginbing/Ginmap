@@ -2,10 +2,10 @@ import { NextRequest, NextResponse } from "next/server";
 import { cookies } from "next/headers";
 import { disconnectGitHubAccount } from "@ginmap/db";
 import { currentUser, SESSION_COOKIE } from "../../../../lib/session";
-import { requireSameOrigin } from "../../../../lib/security";
+import { isSameOrigin } from "../../../../lib/security";
 
 export async function POST(request: NextRequest) {
-  requireSameOrigin(request);
+  if (!isSameOrigin(request)) return new Response("Forbidden", { status: 403 });
   const user = await currentUser();
   if (user) await disconnectGitHubAccount(user.id);
   const store = await cookies();
