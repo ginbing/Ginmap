@@ -21,7 +21,8 @@
       "@ginmap/github": ["packages/github/src/index.ts"],
       "@ginmap/analytics": ["packages/analytics/src/index.ts"],
       "@ginmap/render": ["packages/render/src/index.ts"],
-      "@ginmap/hosted": ["packages/hosted/src/index.ts"]
+      "@ginmap/hosted": ["packages/hosted/src/index.ts"],
+      "@ginmap/operations": ["packages/operations/src/index.ts"]
     }
   }
 }
