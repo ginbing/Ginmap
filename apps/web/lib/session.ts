@@ -8,7 +8,9 @@ export const CLAIM_LOGIN_COOKIE = "ginmap_claim_login";
 
 export async function currentUser(): Promise<UserRow | null> {
   const store = await cookies();
-  const userId = verifySessionToken(store.get(SESSION_COOKIE)?.value);
-  if (!userId) return null;
-  return getUserById(userId);
+  const session = verifySessionToken(store.get(SESSION_COOKIE)?.value);
+  if (!session) return null;
+  const user = await getUserById(session.userId);
+  if (!user || user.session_version !== session.version) return null;
+  return user;
 }
