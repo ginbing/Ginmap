@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
-import { afterEach, describe, expect, it } from "vitest";
-import { completeSyncJob, getPool } from "@ginmap/db";
+import { afterAll, afterEach, describe, expect, it } from "vitest";
+import { closePool, completeSyncJob, getPool } from "@ginmap/db";
 import { claimRecoverableSyncJob, getIncrementalWatermark, heartbeatSyncJob } from "@ginmap/operations";
 
 const databaseAvailable = Boolean(process.env.DATABASE_URL);
@@ -20,6 +20,10 @@ async function createUser(): Promise<string> {
 
 afterEach(async () => {
   for (const id of createdUsers.splice(0)) await getPool().query("DELETE FROM users WHERE id=$1", [id]);
+});
+
+afterAll(async () => {
+  if (databaseAvailable) await closePool();
 });
 
 describe.skipIf(!databaseAvailable)("operational database boundaries", () => {
