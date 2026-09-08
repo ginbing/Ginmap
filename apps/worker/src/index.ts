@@ -2,7 +2,7 @@ import { createServer } from "node:http";
 import {
   decryptToken,
   encryptToken,
-  githubAppAuthorization,
+  githubPublicToken,
   githubClientId,
   githubClientSecret,
   reconcileIntervalHours,
@@ -192,7 +192,7 @@ async function runReconcile(userId: string, credential: string): Promise<void> {
 
 async function credentialForUser(userId: string): Promise<{ credential: string; claimed: boolean }> {
   const credential = await getGitHubCredential(userId);
-  if (!credential) return { credential: githubAppAuthorization(), claimed: false };
+  if (!credential) return { credential: githubPublicToken(), claimed: false };
   if (credential.scopes.trim() !== "") throw new Error("Ginmap refuses GitHub credentials with non-empty OAuth scopes");
   const needsRefresh = credential.tokenExpiresAt != null && credential.tokenExpiresAt.getTime() <= Date.now() + 5 * 60 * 1000;
   if (!needsRefresh) return { credential: decryptToken(credential.tokenCiphertext), claimed: true };
