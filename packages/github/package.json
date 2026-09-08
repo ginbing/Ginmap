@@ -1,0 +1,1 @@
+{"name":"@ginmap/github","version":"0.1.0","private":true,"type":"module","exports":"./src/index.ts","dependencies":{"@ginmap/config":"0.1.0","@ginmap/model":"0.1.0"}}

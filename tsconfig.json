@@ -1,0 +1,26 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "lib": ["ES2022", "DOM", "DOM.Iterable"],
+    "module": "ESNext",
+    "moduleResolution": "Bundler",
+    "allowJs": false,
+    "strict": true,
+    "esModuleInterop": true,
+    "skipLibCheck": true,
+    "forceConsistentCasingInFileNames": true,
+    "resolveJsonModule": true,
+    "isolatedModules": true,
+    "jsx": "preserve",
+    "incremental": true,
+    "baseUrl": ".",
+    "paths": {
+      "@ginmap/config": ["packages/config/src/index.ts"],
+      "@ginmap/model": ["packages/model/src/index.ts"],
+      "@ginmap/db": ["packages/db/src/index.ts"],
+      "@ginmap/github": ["packages/github/src/index.ts"],
+      "@ginmap/analytics": ["packages/analytics/src/index.ts"],
+      "@ginmap/render": ["packages/render/src/index.ts"]
+    }
+  }
+}

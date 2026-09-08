@@ -1,0 +1,25 @@
+{
+  "name": "@ginmap/web",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start"
+  },
+  "dependencies": {
+    "@ginmap/config": "0.1.0",
+    "@ginmap/model": "0.1.0",
+    "@ginmap/db": "0.1.0",
+    "@ginmap/github": "0.1.0",
+    "@ginmap/analytics": "0.1.0",
+    "@ginmap/render": "0.1.0",
+    "next": "16.3.4",
+    "react": "19.2.0",
+    "react-dom": "19.2.0"
+  },
+  "devDependencies": {
+    "@types/react": "^19.2.0",
+    "@types/react-dom": "^19.2.0"
+  }
+}
