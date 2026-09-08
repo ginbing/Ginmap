@@ -1,22 +1,53 @@
 # Ginmap
 
-**The missing summary layer for GitHub profiles.**
+**Your GitHub work, mapped.**
 
-Ginmap turns public GitHub history into a readable, evidence-backed map of what someone has actually done: the projects they built, the repositories they contributed to, and the pull requests and issues behind those claims.
+Ginmap turns public GitHub history into one live work map: what you built, where you contributed, and the pull requests and issues behind those claims.
 
-## Use Ginmap
+Use the same Ginmap as a personal developer page, embed it on your own website, or put a compact card in your GitHub Profile README. Ginmap keeps the data behind every surface up to date automatically.
 
-Open a GitHub username on the hosted service:
+## Hosted personal page
+
+Open any public GitHub username:
 
 ```text
 https://ginmap.ginbing.com/octocat
 ```
 
-No sign-up, token, GitHub Action, or self-hosting is required.
+The page is a complete single-page developer presence generated from GitHub. There is no blog, CMS, résumé editor, or manually maintained project list.
 
-### GitHub Profile README
+No sign-up is required to read a public Ginmap.
 
-Paste one stable link:
+## Website embed
+
+Load the framework-independent Web Component once, then place a Ginmap anywhere in the page:
+
+```html
+<script type="module" src="https://ginmap.ginbing.com/widget.js"></script>
+<gin-map username="octocat" view="full" theme="auto"></gin-map>
+```
+
+Supported attributes:
+
+- `username` — required GitHub login;
+- `view="full|compact"` — full work map or smaller website section;
+- `theme="auto|light|dark"` — rendering theme.
+
+The component uses Shadow DOM so Ginmap styles do not leak into the host website and host styles do not rewrite Ginmap.
+
+For sites that cannot run the module, use the iframe fallback:
+
+```html
+<iframe
+  src="https://ginmap.ginbing.com/octocat/embed"
+  title="octocat's GitHub work map"
+  loading="lazy">
+</iframe>
+```
+
+## GitHub Profile README
+
+Paste one stable URL:
 
 ```md
 [![Ginmap](https://ginmap.ginbing.com/octocat.svg)](
@@ -24,49 +55,82 @@ Paste one stable link:
 )
 ```
 
-### Machine-readable summary
+The SVG is dynamic. Ginmap refreshes the stored work snapshot in the background, so the README does not need generated-file commits or a scheduled GitHub Action.
+
+## Public data contract
+
+Portable renderers use the same versioned work-map response:
+
+```text
+https://ginmap.ginbing.com/api/v1/users/octocat/summary
+```
+
+The convenience alias remains available:
 
 ```text
 https://ginmap.ginbing.com/octocat.json
 ```
 
-HTML, SVG, and JSON come from the same normalized work model.
+The JSON API is the contract behind the product surfaces, not a separate profile product.
 
 ## What Ginmap shows
 
 - lifetime authored and merged pull requests;
-- authored issues and GitHub-reported commit/review/contribution totals;
-- **Projects**: owned, non-fork repositories with measurable work;
-- **External contributions**: work in repositories owned by others;
+- authored issues and GitHub-reported contribution data where reliable;
+- **Projects** — owned, non-fork repositories with measurable work;
+- **External contributions** — work in repositories owned by others;
 - repository descriptions, languages, PR/issue titles, and direct links back to GitHub evidence;
-- yearly activity summaries when account-wide metrics are safe to publish;
-- additions, deletions, and changed files through authored PRs, clearly labeled as diff totals.
+- yearly activity summaries where account-wide metrics are safe to publish;
+- additions, deletions, and changed files through authored PRs, labeled as diff totals.
 
 Ginmap does not create developer scores, infer employment or maintainership, or require repository write/private-repository access.
 
-## Claim your profile
+## Live updates
 
-Anyone can read a public Ginmap without authentication. The owner can optionally claim it with a no-scope GitHub OAuth authorization to:
+GitHub remains the source of truth. Ginmap collects public GitHub data asynchronously, normalizes it into PostgreSQL, and serves a last-good snapshot to every public surface.
+
+Page, Web Component, iframe, SVG, and JSON requests do not reconstruct a lifetime history on every view. Active profiles refresh incrementally, mutable PR state is reconciled, and the previous snapshot remains available during GitHub outages.
+
+## Claim your Ginmap
+
+The owner can optionally claim a Ginmap with a no-scope GitHub OAuth authorization. Claiming exists only to prove ownership and save presentation choices.
+
+Owners can:
 
 - hide irrelevant repositories;
 - pin and reorder representative work;
-- choose card metrics;
+- choose README card metrics;
 - control public visibility and search indexing;
-- refresh or delete their Ginmap data.
+- trigger a refresh;
+- delete their Ginmap data.
 
-Claiming changes presentation, never GitHub facts. Hiding a repository removes it from public Ginmap output; account-wide metrics that cannot be safely recomputed are withheld rather than leaking hidden work.
+Presentation choices affect every public surface without changing GitHub facts. Ginmap never requires a user PAT, repository write access, private-repository access, or a GitHub Action.
 
-## How it works
+Verified custom domains are part of the product scope. Application support will ship only with a deployment path that can prove domain ownership, hostname routing, and TLS certificate lifecycle end to end.
 
-Ginbing operates the hosted service. Ginmap collects public GitHub data asynchronously, normalizes lifetime work into PostgreSQL, and serves last-good snapshots to the public surfaces. Page and README views do not reconstruct a GitHub lifetime synchronously.
+## Architecture
 
-Unclaimed profiles are `noindex` by default and may expire after inactivity. Claimed ownership persists independently of the OAuth connection, so disconnecting GitHub does not erase an owner's visibility choices. Deleting a claimed Ginmap leaves a minimal opt-out tombstone to prevent automatic recreation.
+The same normalized model powers every surface:
+
+```text
+GitHub APIs
+    ↓
+ingestion and reconciliation
+    ↓
+PostgreSQL
+    ↓
+last-good work-map snapshot
+   ↙       ↓       ↓       ↘
+page   Web Component  iframe   SVG
+              ↓
+        public JSON contract
+```
 
 See [Architecture](docs/ARCHITECTURE.md), [Metrics](docs/METRICS.md), [Privacy](PRIVACY.md), and [Security](SECURITY.md).
 
 ## Self-hosting
 
-Self-hosting is optional. Operators who want to run their own instance can use Docker and PostgreSQL; see [Self-hosting](docs/SELF-HOSTING.md).
+Self-hosting is optional. Operators can run Ginmap with Docker and PostgreSQL; see [Self-hosting](docs/SELF-HOSTING.md).
 
 ## License
 

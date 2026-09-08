@@ -4,7 +4,7 @@ import "./globals.css";
 
 export const metadata: Metadata = {
   title: { default: "Ginmap", template: "%s · Ginmap" },
-  description: "The missing summary layer for GitHub profiles.",
+  description: "A live map of your GitHub work for your personal page, website, and GitHub README.",
 };
 
 export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
