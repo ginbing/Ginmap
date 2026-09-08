@@ -1,4 +1,4 @@
-export const METRICS_VERSION = "2026-09-v1";
+export const METRICS_VERSION = "2026-09-v2";
 export const API_SCHEMA_VERSION = "1";
 
 export type SyncKind = "backfill" | "incremental" | "reconcile";
@@ -99,6 +99,29 @@ export interface RepositoryWorkSummary {
   lastActivityAt: string | null;
 }
 
+export interface RepositoryEvidence {
+  repository: RepositoryWorkSummary;
+  pullRequests: Array<{
+    number: number;
+    state: "OPEN" | "CLOSED" | "MERGED";
+    merged: boolean;
+    additions: number;
+    deletions: number;
+    changedFiles: number;
+    createdAt: string;
+    updatedAt: string;
+    mergedAt: string | null;
+    url: string;
+  }>;
+  issues: Array<{
+    number: number;
+    state: "OPEN" | "CLOSED";
+    createdAt: string;
+    updatedAt: string;
+    url: string;
+  }>;
+}
+
 export interface YearSummary {
   year: number;
   contributions: number;
@@ -135,6 +158,7 @@ export interface ProfileSnapshot {
 
 export interface ProfileSettings {
   publicProfile: boolean;
+  searchIndexing: boolean;
   hiddenRepositoryIds: string[];
   pinnedRepositoryIds: string[];
   visibleMetrics: {
@@ -149,6 +173,7 @@ export interface ProfileSettings {
 
 export const defaultProfileSettings: ProfileSettings = {
   publicProfile: true,
+  searchIndexing: false,
   hiddenRepositoryIds: [],
   pinnedRepositoryIds: [],
   visibleMetrics: {
@@ -168,6 +193,8 @@ export interface PublicSummaryResponse {
   identity: GitHubIdentity;
   lifetime: LifetimeSummary;
   years: YearSummary[];
+  projects: RepositoryWorkSummary[];
+  externalContributions: RepositoryWorkSummary[];
   repositories: RepositoryWorkSummary[];
   definitionsUrl: string;
 }
