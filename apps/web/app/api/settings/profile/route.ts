@@ -9,7 +9,8 @@ export async function POST(request: NextRequest) {
   if (!user) return NextResponse.redirect(new URL("/", request.url), 303);
   const form = await request.formData();
   const settings = await getProfileSettings(user.id);
-  settings.publicProfile = form.get("publicProfile") === "true";
+  settings.publicProfile = form.get("publicProfile") === "on";
+  settings.searchIndexing = form.get("searchIndexing") === "on";
   await saveProfileSettings(user.id, settings);
   return NextResponse.redirect(new URL("/dashboard", request.url), 303);
 }
