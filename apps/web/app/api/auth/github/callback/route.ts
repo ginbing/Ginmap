@@ -43,7 +43,7 @@ export async function GET(request: NextRequest) {
       scopes: oauth.scope,
     });
     await enqueueSync(user.id, (await getSnapshot(user.id)) ? "incremental" : "backfill");
-    cookieStore.set(SESSION_COOKIE, createSessionToken(user.id), {
+    cookieStore.set(SESSION_COOKIE, createSessionToken(user.id, user.session_version), {
       httpOnly: true,
       sameSite: "lax",
       secure: appUrl().startsWith("https://"),
