@@ -11,7 +11,6 @@ import {
   workerHealthPort,
 } from "@ginmap/config";
 import {
-  claimSyncJob,
   closePool,
   completeSyncJob,
   connectGitHubAccount,
@@ -21,7 +20,6 @@ import {
   failSyncRun,
   finishSyncRun,
   getGitHubCredential,
-  getLastCompletedSyncAt,
   getUserById,
   listRepositoriesForUser,
   removeUserRepositoryData,
@@ -47,9 +45,15 @@ import {
 } from "@ginmap/github";
 import { rebuildSnapshot } from "@ginmap/analytics";
 import { deleteExpiredUnclaimedProfiles, enqueueDuePublicSyncs } from "@ginmap/hosted";
+import {
+  claimRecoverableSyncJob,
+  getIncrementalWatermark,
+  heartbeatSyncJob,
+} from "@ginmap/operations";
 import type { SyncKind } from "@ginmap/model";
 
 const pollMs = 5_000;
+const leaseHeartbeatMs = 60_000;
 let stopping = false;
 let lastLoopAt = Date.now();
 let serviceTokenVerified = false;
@@ -63,6 +67,11 @@ healthServer.listen(workerHealthPort());
 
 function yearWindow(year: number): { from: Date; to: Date } {
   return { from: new Date(Date.UTC(year, 0, 1, 0, 0, 0)), to: new Date(Date.UTC(year, 11, 31, 23, 59, 59)) };
+}
+
+function accountYears(createdAt: Date, currentYear = new Date().getUTCFullYear()): number[] {
+  const firstYear = createdAt.getUTCFullYear();
+  return Array.from({ length: currentYear - firstYear + 1 }, (_, index) => firstYear + index);
 }
 
 async function mapLimit<T>(items: T[], limit: number, fn: (item: T) => Promise<void>): Promise<void> {
@@ -96,9 +105,7 @@ async function refreshOpenPrs(userId: string, credential: string, login: string,
 async function runBackfill(userId: string, credential: string): Promise<void> {
   const user = await getUserById(userId);
   if (!user) throw new Error("User not found");
-  const contributionYears = await fetchContributionYears(credential, user.login);
-  const currentYear = new Date().getUTCFullYear();
-  const years = [...new Set([...contributionYears, currentYear])].sort((a, b) => a - b);
+  const years = accountYears(user.github_created_at);
   const run = await createOrResumeSyncRun(userId, "backfill", { years, nextYearIndex: 0 });
   try {
     const state = parseBackfillState(run.state, years);
@@ -119,7 +126,7 @@ async function runBackfill(userId: string, credential: string): Promise<void> {
 async function runIncremental(userId: string, credential: string): Promise<void> {
   const user = await getUserById(userId);
   if (!user) throw new Error("User not found");
-  const previous = await getLastCompletedSyncAt(userId);
+  const previous = await getIncrementalWatermark(userId);
   if (!previous) { await runBackfill(userId, credential); return; }
   const run = await createOrResumeSyncRun(userId, "incremental", {});
   try {
@@ -238,8 +245,13 @@ async function loop(): Promise<void> {
         console.error(JSON.stringify({ event: "scheduler.failed", error: error instanceof Error ? error.message : String(error) }));
       }
     }
-    const job = await claimSyncJob();
+    const job = await claimRecoverableSyncJob();
     if (!job) { await new Promise((resolve) => setTimeout(resolve, pollMs)); continue; }
+    const heartbeat = setInterval(() => {
+      heartbeatSyncJob(job.id).catch((error) => console.error(JSON.stringify({
+        event: "sync.heartbeat.failed", jobId: job.id, error: error instanceof Error ? error.message : String(error),
+      })));
+    }, leaseHeartbeatMs);
     try {
       await processJob(job);
       await completeSyncJob(job.id);
@@ -248,6 +260,8 @@ async function loop(): Promise<void> {
       const message = error instanceof Error ? error.stack ?? error.message : String(error);
       await failSyncJob(job.id, message, job.attempts);
       console.error(JSON.stringify({ event: "sync.failed", jobId: job.id, userId: job.userId, kind: job.kind, error: message }));
+    } finally {
+      clearInterval(heartbeat);
     }
   }
 }
