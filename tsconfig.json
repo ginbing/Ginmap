@@ -20,7 +20,8 @@
       "@ginmap/db": ["packages/db/src/index.ts"],
       "@ginmap/github": ["packages/github/src/index.ts"],
       "@ginmap/analytics": ["packages/analytics/src/index.ts"],
-      "@ginmap/render": ["packages/render/src/index.ts"]
+      "@ginmap/render": ["packages/render/src/index.ts"],
+      "@ginmap/hosted": ["packages/hosted/src/index.ts"]
     }
   }
 }
