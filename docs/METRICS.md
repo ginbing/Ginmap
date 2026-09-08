@@ -1,10 +1,10 @@
 # Metric definitions
 
-Ginmap favors stable, explainable facts over reputation scores.
+Ginmap reports explainable GitHub facts. It does not create reputation or productivity scores.
 
 ## Authored pull requests
 
-The number of public pull requests returned by GitHub Search for `author:<login>`. Lifetime search is partitioned by creation time when a query would exceed GitHub's 1,000-result retrieval limit.
+The number of public pull requests returned by GitHub Search for `author:<login>`. Lifetime search is partitioned by time when a query would exceed GitHub's 1,000-result retrieval limit.
 
 ### Merged pull requests
 
@@ -22,32 +22,44 @@ Authored public pull requests that are not merged and are no longer open.
 
 The number of public issues returned by GitHub Search for `is:issue author:<login>`. Pull requests are excluded.
 
-## Reviews
+## Reviewed pull requests
 
-GitHub-counted pull-request review contributions grouped by public repository through `contributionsCollection`. GitHub limits repository-group contribution fields to a maximum repository count; Ginmap currently requests the maximum of 100 repositories per contribution year. For unusually broad yearly activity this can undercount review/commit repository groups. Exact authored PR and issue totals do not use this bounded grouping.
+Ginmap uses GitHub's pull-request review contribution model. This is a contribution count for reviewed pull requests, not a count of every raw review submission. Repository groupings come from `contributionsCollection` and are limited by GitHub to 100 repositories per contribution year, so unusually broad review-only activity can be incomplete at repository level.
 
 ## GitHub-counted commits
 
-The lifetime and yearly commit totals use GitHub's `totalCommitContributions`, which GitHub defines as the number of commits made by the user in the selected contribution time span. Because Ginmap requests no `read:user` scope, GitHub excludes private and internal repository contributions from this collection.
+Lifetime and yearly totals use GitHub's `totalCommitContributions`. Repository-level values use the `totalCount` returned by the repository's commit-contribution connection. Ginmap labels these values **commits**, not commit days.
 
-At repository level, GitHub's grouped commit contribution connection represents **days with qualifying commits**, not raw commits. Ginmap therefore labels that repository-level value `commit days` and does not misrepresent it as a commit count.
+GitHub decides which commits qualify as profile contributions. Ginmap preserves that definition instead of reconstructing commits from repository history.
 
 ## Public contributions
 
-The GitHub contribution-calendar total with `restrictedContributionsCount` removed. Private repository identities are never ingested. Ginmap does not try to reverse-engineer private activity.
+The GitHub contribution-calendar total with `restrictedContributionsCount` removed. Ginmap does not identify repositories behind restricted/private contribution counts.
 
 ## Repositories worked in
 
-A public repository where Ginmap can verify at least one authored PR, authored issue, GitHub-counted commit contribution, or GitHub-counted review contribution for the user. Authored PR and issue repository discovery is exhaustive through partitioned Search. GitHub limits the commit/review repository groupings to 100 repositories per contribution year, so an unusually broad account can have additional commit-only or review-only repositories that are not represented in this count.
+A public repository where Ginmap can verify at least one authored PR, authored issue, GitHub-counted commit contribution, or GitHub-counted review contribution. Authored PR and issue repository discovery is exhaustive through partitioned Search. Commit/review repository groupings are limited to 100 repositories per contribution year by GitHub.
+
+## Hidden repositories
+
+When an owner hides a repository, Ginmap removes that repository from HTML, SVG, and JSON and recomputes metrics that can be derived exactly from visible repository records: PR totals and states, issues, repositories worked in, additions, deletions, and changed files.
+
+GitHub does not expose all account-wide contribution, commit, and review totals in a form that Ginmap can reliably subtract repository by repository. When any repository is hidden, Ginmap therefore withholds those account-wide metrics and yearly account-wide history instead of publishing numbers that still include hidden work.
 
 ## Code changed through authored PRs
 
-The sum of GitHub's `additions`, `deletions`, and `changedFiles` fields across authored public pull requests.
+The sum of GitHub's `additions`, `deletions`, and `changedFiles` fields across authored public pull requests that are visible in the Ginmap profile.
 
-This is deliberately **not** called “lines of code written.” PR diffs can contain generated code, lockfiles, formatting changes, vendored files, and deletions. Ginmap reports the underlying diff totals without turning them into a productivity score.
+This is deliberately not called "lines of code written." PR diffs can contain generated code, lockfiles, formatting changes, vendored files, and deletions.
 
-## Repository role
+## Projects and external contributions
 
-`owner` means the current repository owner login matches the user's current GitHub login. All other repositories are labeled `contributor`.
+A **Project** is a measurable repository relationship where the repository is currently owned by the GitHub user and the repository is not a fork. Personal forks are not presented as things the person built.
 
-Ginmap does not infer maintainer status, employment, project importance, or developer quality from activity.
+An **External contribution** is measurable work in a repository currently owned by another GitHub account or organization.
+
+These labels do not imply employment, maintainership, project membership, or developer quality.
+
+## Activity dates
+
+Exact first/last activity dates are reported only when Ginmap has exact PR or issue timestamps. Commit/review-only repository activity is represented with year precision rather than invented January 1 / December 31 dates.
