@@ -7,7 +7,7 @@ import {
   githubClientId,
   githubClientSecret,
 } from "@ginmap/config";
-import { connectGitHubAccount, enqueueSync, getSnapshot, getUserByLogin, upsertUser } from "@ginmap/db";
+import { connectGitHubAccount, enqueueSync, getSnapshot, upsertUser } from "@ginmap/db";
 import { exchangeOAuthCode, fetchViewerIdentity } from "@ginmap/github";
 import { CLAIM_LOGIN_COOKIE, OAUTH_STATE_COOKIE, SESSION_COOKIE } from "../../../../../lib/session";
 
@@ -26,11 +26,7 @@ export async function GET(request: NextRequest) {
     const oauth = await exchangeOAuthCode(githubClientId(), githubClientSecret(), code);
     if (oauth.scope.trim() !== "") throw new Error("Ginmap requires a public-data-only GitHub authorization");
     const identity = await fetchViewerIdentity(oauth.accessToken);
-    const target = claimLogin ? await getUserByLogin(claimLogin) : null;
-    if (claimLogin && target && target.github_id !== identity.githubId) {
-      return NextResponse.redirect(new URL(`/${encodeURIComponent(claimLogin)}?claim=wrong-account`, appUrl()));
-    }
-    if (claimLogin && !target && identity.login.toLowerCase() !== claimLogin.toLowerCase()) {
+    if (claimLogin && identity.login.toLowerCase() !== claimLogin.toLowerCase()) {
       return NextResponse.redirect(new URL(`/${encodeURIComponent(claimLogin)}?claim=wrong-account`, appUrl()));
     }
     const user = await upsertUser(identity);
