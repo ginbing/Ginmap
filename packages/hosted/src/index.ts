@@ -1,4 +1,4 @@
-import { githubAppAuthorization } from "@ginmap/config";
+import { githubPublicToken } from "@ginmap/config";
 import {
   enqueueSync,
   getPool,
@@ -45,7 +45,7 @@ export async function ensureHostedProfile(login: string): Promise<HostedProfileS
   if (!validGitHubLogin(login)) return null;
   let user = await getUserByLogin(login);
   if (!user) {
-    const identity = await fetchPublicIdentity(githubAppAuthorization(), login);
+    const identity = await fetchPublicIdentity(githubPublicToken(), login);
     if (!identity) return null;
     user = await upsertUser(identity);
     await enqueueSync(user.id, "backfill");
