@@ -1,42 +1,57 @@
 # Privacy
 
-Ginmap v1 summarizes public GitHub activity. It is intentionally designed not to request private-repository or repository-write OAuth scopes. The OAuth callback rejects an authorization if GitHub returns any non-empty OAuth scope.
+Ginmap summarizes public GitHub activity. Public information becomes easier to discover when it is aggregated, so Ginmap treats indexing, retention, and owner control as part of the privacy model.
+
+## Public profiles
+
+Anyone can ask Ginmap to summarize a public GitHub account. No GitHub authorization from that person is required because the source material is public.
+
+An **unclaimed** Ginmap is `noindex` by default. It can be viewed by URL but should not automatically become part of a search-engine-indexed directory. Unclaimed profiles may be deleted after a period of inactivity and rebuilt on demand later.
+
+A verified owner can claim a profile and explicitly choose whether search engines may index it.
 
 ## Data Ginmap reads
 
-When you connect GitHub, Ginmap reads public GitHub information needed to build your work summary, including your public profile, public pull requests and issues, public contribution aggregates, and public repository metadata.
+Ginmap reads public GitHub information needed to build the work summary, including:
 
-Ginmap does not request access to private repository names, private code, private pull requests, or private issues. It does not attempt to identify repositories behind GitHub's restricted/private contribution counts.
+- public account identity;
+- authored public pull requests and issues;
+- GitHub-reported public contribution aggregates;
+- public repository metadata.
+
+Ginmap does not request private-repository or repository-write OAuth scopes. It does not attempt to identify repositories behind restricted/private contribution counts.
 
 ## Data Ginmap stores
 
 A hosted instance may store:
 
-- your GitHub numeric ID, login, avatar URL, and account creation date;
-- normalized records for public pull requests and issues;
+- GitHub numeric ID, login, avatar URL, and account creation date;
+- normalized public pull-request and issue records;
 - public contribution aggregates and repository metadata;
-- profile display settings;
-- cached public profile snapshots;
-- an OAuth access token so background synchronization can continue.
+- cached profile snapshots and sync state;
+- owner presentation settings after a profile is claimed;
+- an encrypted no-scope OAuth credential for a claimed owner so ownership and background synchronization can continue.
 
-OAuth access tokens and refresh tokens (when GitHub issues them) are encrypted before database storage. Session cookies are HTTP-only. Operators must treat the database and its backups as sensitive because encrypted tokens are still credentials.
+OAuth access and refresh tokens are encrypted before database storage. Session cookies are HTTP-only. Operators must still treat the database and backups as sensitive.
 
 ## Public output
 
-If your Ginmap profile is enabled, the HTML profile, SVG card, and public JSON API expose only the public summary and repositories you have not hidden in Ginmap. Hidden repositories remain stored until you delete your Ginmap data or the source becomes unavailable, but they are excluded from public output.
+HTML, SVG, and JSON expose the same public work model. If the owner hides a repository, that repository is excluded from all public Ginmap surfaces. Owner customization changes presentation and does not rewrite GitHub facts.
 
 ## Repository visibility changes
 
-Ginmap periodically reconciles repository metadata. If a repository previously visible to Ginmap is no longer accessible through the public-data OAuth token, Ginmap removes that repository's records from the user's public activity model. Repository renames are tracked by GitHub numeric ID.
+Ginmap periodically reconciles repository metadata. If a previously public repository becomes unavailable to Ginmap's public-data credentials, Ginmap removes that repository's records from the public work model. Renames are tracked by durable GitHub numeric ID.
 
-## Disconnect and deletion
+## Claim, disconnect, and deletion
 
-Disconnecting GitHub removes the stored OAuth token and stops future synchronization while leaving the existing Ginmap profile data in place.
+Claiming verifies ownership through GitHub OAuth with no requested scopes.
 
-Deleting Ginmap data removes the user record and its associated OAuth token, settings, normalized activity, snapshots, and sync history through database cascade deletion.
+Disconnecting the claim removes the stored OAuth credential. The public Ginmap can continue as an unclaimed public-data profile and becomes subject to unclaimed indexing and retention rules.
 
-Self-hosted operators control their own backups and retention policies; deletion from the live database cannot by itself erase copies retained in backups.
+Deleting Ginmap data removes the user record and associated credentials, settings, normalized activity, snapshots, and sync history through database cascade deletion. A later public request can build a new unclaimed snapshot from GitHub's public data.
+
+Self-hosted operators control their own backups and retention policies; deleting the live database record does not erase copies retained in backups.
 
 ## Network access
 
-The hosted web application and background worker communicate with GitHub's APIs. Public README images may be fetched and cached by GitHub's image proxy. Ginmap does not require analytics or advertising services to function.
+The hosted web application and worker communicate with GitHub's APIs. GitHub may proxy and cache README images through Camo. Ginmap does not require advertising or analytics services to function.
