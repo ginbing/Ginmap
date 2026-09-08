@@ -1,4 +1,4 @@
-export const METRICS_VERSION = "2026-09-v3";
+export const METRICS_VERSION = "2026-09";
 export const API_SCHEMA_VERSION = "1";
 
 export type SyncKind = "backfill" | "incremental" | "reconcile";
